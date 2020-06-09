@@ -5,10 +5,12 @@ import pandas as pd
 import numpy as np
 import params
 import fnmatch
+import proc
 from tqdm import tqdm
 from skimage import io
+AUTOTUNE = tf.data.experimental.AUTOTUNE
 
-def collect(data, images_dir):
+def collect_dataset(data, images_dir):
     """Download data from the input csv to specific directory
     Args:
         data: a csv file storing the dataset with filename, model, brand and etc.
@@ -27,7 +29,6 @@ def collect(data, images_dir):
     for i in range((data.shape[0])): 
         csv_rows.append(list(data.iloc[i, :]))
 
-    # count = 0
     for csv_row in tqdm(csv_rows):
         filename, brand, model = csv_row[0:3]
         url = csv_row[-1]
@@ -38,37 +39,11 @@ def collect(data, images_dir):
             urllib.request.urlretrieve(url, image_path)
         path_list.append(image_path)
 
-        # try:
-        #     if not os.path.exists(image_path):
-        #         print('Downloading {:}'.format(filename))
-        #         urllib.request.urlretrieve(url, image_path)
-        #     # Load the image and check its dimensions
-        #     img = io.imread(image_path)
-        #     if img is None or not isinstance(img, np.ndarray):
-        #         print('Unable to read image: {:}'.format(filename))
-        #         # removes (deletes) the file path
-        #         os.unlink(image_path)
-        #     # if the size of all images are not zero, then append to the list
-        #     if all(img.shape[:2]):
-        #         count += 1
-        #         path_list.append(image_path)
-        #     else:
-        #         print('Zero-sized image: {:}'.format(filename))
-        #         os.unlink(image_path)
-
-        # except IOError:
-        #     print('Unable to decode: {:}'.format(filename))
-        #     os.unlink(image_path)
-
-        # except Exception as e:
-        #     print('Error while loading: {:}'.format(filename))
-        #     if os.path.exists(image_path):
-        #         os.unlink(image_path)
-
-    print('Number of images: {:}'.format(len(path_list)))
+    print('Number of images: {:}\n'.format(len(path_list)))
     return path_list
 
-def split(img_list, seed=42):
+
+def split_dataset(img_list, seed=42):
     """Split dataset into train, validation and test
     Args:
         img_list: the dataset need to be split, which is a list of paths of images
@@ -86,7 +61,6 @@ def split(img_list, seed=42):
     train_list = img_list[0:num_train]
     val_list = img_list[num_train:(num_train + num_val)]
     test_list = img_list[(num_train + num_val):]
-
     # print out the split information
     split_ds = []
     weights = []
@@ -103,13 +77,45 @@ def split(img_list, seed=42):
         weights.append((1/len(train + val + test))*(len(img_list))/ 2.0)
     return split_ds, weights
 
-def process_path(img_path):
+def collect_split_extract():
+    # collect data if not downloaded
+    data = pd.read_csv(params.dresden)
+    data = data[([m in params.models for m in data['model']])]
+    image_paths = collect_dataset(data, params.dresden_images_dir)
+
+    # split dataset in train, val and test
+    split_ds, weights = split_dataset(image_paths)
+    class_weight = {}
+    for i in range(len(params.brand_models)):
+        class_weight[i] = weights[i]
+    # extract patches from full-sized images
+    for i in range(len(params.brand_models)):
+        print("... Extracting patches from {} images".format(params.brand_models[i]))
+        proc.patch(path=split_ds[i][0], dataset='train')
+        proc.patch(path=split_ds[i][1], dataset='val')
+        proc.patch(path=split_ds[i][2], dataset='test')
+        print("... Done\n")
+
+    return class_weight
+
+
+def string_to_onehot(input, vocab):
+    matches = tf.stack([tf.equal(input, s) for s in vocab], axis=-1)
+    onehot = tf.cast(matches, tf.float32)
+    return onehot
+
+
+def parse_image(img_path):
     label = tf.strings.split(img_path, os.path.sep)[-2]
+    onehot = string_to_onehot(label, params.brand_models)
     # load the raw data from the file as a string
     img = tf.io.read_file(img_path)
     img = tf.image.decode_jpeg(img, channels=1)
+    # image covert to tf.float32 and /255.
+    img = tf.image.convert_image_dtype(img, tf.float32)
     # img = tf.image.resize(img, [params.IMG_HEIGHT, params.IMG_WIDTH])
-    return img, label
+    return img, onehot
+
 
 def prepare_for_training(ds, cache=True, shuffle_buffer_size=1000):
     # This is a small dataset, only load it once, and keep it in memory.
@@ -120,9 +126,11 @@ def prepare_for_training(ds, cache=True, shuffle_buffer_size=1000):
             ds = ds.cache(cache)
         else:
             ds = ds.cache()
-    ds = ds.shuffle(buffer_size=shuffle_buffer_size)
+    ds = ds.shuffle(buffer_size=shuffle_buffer_size, reshuffle_each_iteration=True)
+    # ds = ds.shuffle(buffer_size=shuffle_buffer_size)
     # Repeat forever
-    ds = ds.repeat()
+    # Applying the Dataset.repeat() transformation with no arguments will repeat the input indefinitely.
+    # ds = ds.repeat()
     ds = ds.batch(params.BATCH_SIZE)
     # `prefetch` lets the dataset fetch batches in the background while the model
     # is training.
@@ -130,31 +138,18 @@ def prepare_for_training(ds, cache=True, shuffle_buffer_size=1000):
 
     return ds
 
-class ImageSequence(tf.keras.utils.Sequence):
-    def __init__(self, data, batch_size):
-        # images, labels = data
-        self.images, self.labels = ImageSequence.__preprocessing(data)
-        self.batch_size = batch_size
+def build_dataset():
+    # zip image and label
+    # The Dataset.map(f) transformation produces a new dataset by applying a 
+    # given function f to each element of the input dataset. 
+    train_set = tf.data.Dataset.list_files(params.patches_dir + '/train/*/*')
+    train_ds = train_set.map(parse_image, num_parallel_calls=AUTOTUNE)
+    val_set = tf.data.Dataset.list_files(params.patches_dir + '/val/*/*')
+    val_ds = val_set.map(parse_image, num_parallel_calls=AUTOTUNE)
+    test_set = tf.data.Dataset.list_files(params.patches_dir + '/val/*/*')
+    test_ds = test_set.map(parse_image, num_parallel_calls=AUTOTUNE)
 
-    @staticmethod
-    def __preprocessing(data):
-        """Preprocessing images and labels data
-        
-        Returns:
-            images: image data, normalized and expanded for convolutional
-                    neural network input.
-            labels: labels data (0-9) as one-hot(categorical) values.
-        """
-        images, labels = data
-        images = images / 255.
-        # images = images[..., tf.newaxis]
-        labels = tf.keras.utils.to_categorical(labels)
-        return images, labels
-
-    def __len__(self):
-        return int(tf.math.ceil(len(self.images) / self.batch_size))
-
-    def __getitem__(self, idx):
-        batch_x = self.images[idx * self.batch_size: (idx + 1) * self.batch_size]
-        batch_y = self.labels[idx * self.batch_size: (idx + 1) * self.batch_size]
-        return batch_x, batch_y
+    train_ds = prepare_for_training(train_ds)
+    val_ds = prepare_for_training(val_ds)
+    test_ds = prepare_for_training(test_ds)
+    return train_ds, val_ds, test_ds

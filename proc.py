@@ -3,11 +3,9 @@ import numpy as np
 import pandas as pd
 import warnings
 import params
-from tqdm import tqdm
 from multiprocessing import Pool
 from skimage.util.shape import view_as_blocks
 from skimage import io
-AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 def patchify(img_path, patch_span=params.patch_span):
     """Separate the full-sized image into 256 x 256 image patches. By default, the full-sized
