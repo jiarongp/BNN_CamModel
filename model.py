@@ -24,10 +24,8 @@ def constrain_conv(layer, pre_weights):
             weights[:, :, 0, i] /= s[0, i]
         weights[2, 2, :, :] = -1
 
-    pre_weights = weights
     layer.set_weights([weights, bias])
     return pre_weights
-
 
 def _posterior_mean_field(kernel_size, bias_size=0, dtype=None):
   """Posterior function for variational layer."""
@@ -87,6 +85,8 @@ def make_prior_fn_for_empirical_bayes(init_scale_mean=-1, init_scale_std=0.1):
     return tfd.Independent(dist, reinterpreted_batch_ndims=batch_ndims)
   return prior_fn
 
+
+
 def variational_layer(inputs,
                       num_filters=16,
                       kernel_size=3,
@@ -111,24 +111,11 @@ def variational_layer(inputs,
     Returns:
         x (tensor): tensor as input to the next layer
     """
-
-    divergence_fn = make_divergence_fn_for_empirical_bayes(
-        std_prior_scale, examples_per_epoch)
-
-    def fixup_init(shape, dtype=None):
-        """Fixup initialization; see https://arxiv.org/abs/1901.09321."""
-        depth = 0 # what is this depth here?
-        return tf.keras.initializers.he_normal()(shape, dtype=dtype) * depth**(-1/4)
-
     conv = tfp.layers.Convolution2DFlipout(
         num_filters,
         kernel_size=kernel_size,
         strides=strides,
-        padding='same',
-        kernel_prior_fn=eb_prior_fn,
-        kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
-            loc_initializer=tf.keras.initializers.he_normal()),
-        kernel_divergence_fn=divergence_fn)
+        padding='same')
     
     x = inputs
     x = conv(x)
@@ -154,177 +141,56 @@ def make_lr_scheduler(init_lr):
   return tf.keras.callbacks.LearningRateScheduler(schedule_fn)
 
 class BNN(tf.keras.Model):
-    def __init__(self, 
-                 std_prior_scale, 
-                 eb_prior_fn, 
-                 examples_per_epoch):
+    def __init__(self, num_examples_per_epoch):
+                #  eb_prior_fn, 
+                #  examples_per_epoch):
         super(BNN, self).__init__()
+        kernel_divergence_function = (lambda q, p, _: tfd.kl_divergence(q, p) / 
+                                      tf.cast(num_examples_per_epoch, dtype=tf.float32))
         self.constrained_weights = None
         # no non-linearity after constrained layer
         self.constrained_conv = tf.keras.layers.Conv2D(3, (5, 5), 
                                                     padding='same', 
                                                     input_shape=[None, params.IMG_WIDTH, params.IMG_HEIGHT, 1])
-        self.variational_layer = functools.partial(
-                                    variational_layer,
-                                    activation='selu',
-                                    std_prior_scale=std_prior_scale,
-                                    eb_prior_fn=eb_prior_fn,
-                                    examples_per_epoch=examples_per_epoch)
+        self.variational_conv1 = tfp.layers.Convolution2DFlipout(
+                                                    96, kernel_size=7,
+                                                    strides=2, padding='same',
+                                                    kernel_divergence_fn=kernel_divergence_function)
+        self.variational_conv2 = tfp.layers.Convolution2DFlipout(
+                                                    64, kernel_size=5,
+                                                    strides=1, padding='same',
+                                                    kernel_divergence_fn=kernel_divergence_function)
+        self.variational_conv3 = tfp.layers.Convolution2DFlipout(
+                                                    128, kernel_size=1,
+                                                    strides=1, padding='same',
+                                                    kernel_divergence_fn=kernel_divergence_function)
         self.maxpool = tf.keras.layers.MaxPool2D(pool_size=(3,3), strides=2, 
                                                   padding='same')
         self.flatten = tf.keras.layers.Flatten()
-        self.dense = tfp.layers.DenseReparameterization(
-                                    NUM_CLASSES,
-                                    kernel_prior_fn=eb_prior_fn,
-                                    kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
-                                        loc_initializer=tf.keras.initializers.he_normal()),
-                                    kernel_divergence_fn=
-                                        make_divergence_fn_for_empirical_bayes(std_prior_scale, 
-                                                                               examples_per_epoch))
+        self.dense = tfp.layers.DenseFlipout(NUM_CLASSES,
+                                            kernel_divergence_fn=kernel_divergence_function)
 
-    def call(self, x):
-        # if training:
-        #     constrain_conv(self.constrained_conv, 
-        #                    self.constrained_weights)
+    def call(self, x, training=False):
         x = self.constrained_conv(x)
-        x = self.variational_layer(inputs=x, 
-                                   num_filters=96, 
-                                   kernel_size=7, 
-                                   strides=2)
+
+        x = self.variational_conv1(x)
+        x = tf.keras.layers.Activation('selu')(x)
         x = self.maxpool(x)
-        x = self.variational_layer(inputs=x, 
-                                   num_filters=64, 
-                                   kernel_size=5, 
-                                   strides=1)
+
+        x = self.variational_conv2(x)
+        x = tf.keras.layers.Activation('selu')(x)
         x = self.maxpool(x)
-        x = self.variational_layer(inputs=x, 
-                                   num_filters=64, 
-                                   kernel_size=5, 
-                                   strides=1)
+
+        x = self.variational_conv3(x)
+        x = tf.keras.layers.Activation('selu')(x)
         x = self.maxpool(x)
-        x = self.variational_layer(inputs=x, 
-                                   num_filters=128, 
-                                   kernel_size=1, 
-                                   strides=1)
-        x = self.maxpool(x)   
+
         x = self.flatten(x)
         x = self.dense(x)
+        
+        if training:
+            self.constrained_weights = constrain_conv(
+                          self.constrained_conv, 
+                          self.constrained_weights)
         return x
-
-
-
-# def create_model(NUM_TRAIN_EXAMPLES, variational):
-#     """ Create a Keras model using the LeNet-5 architecture.
-#     Returns:
-#         model: Compiled Keras model
-#     """
-
-#     # KL divergence weighted by the number of training smaoles, using lambda function 
-#     # to pass as input to the kernel_divergence_fn on flipout layers
-#     kernel_divergence_function = (lambda q, p, _: tfd.kl_divergence(q, p) / tf.cast(NUM_TRAIN_EXAMPLES, dtype=tf.float32))
-
-#     # Step_1: define tensorflow model
-#     # Here a typicall vanilla CNN is defined using three Conv layers followed 
-#     # by MaxPooling operations and two fully connected layers
-#     model = tf.keras.Sequential([
-#         # the first parameter defines the #-of feature maps,
-#         # the second parameter the filter kernel size
-#         tf.keras.layers.Conv2D(
-#             3, (5, 5), padding='same'),
-#         tfp.layers.Convolution2DFlipout(
-#             96, kernel_size=7, strides=2,
-#             kernel_divergence_fn=kernel_divergence_function,
-#             padding='same', activation=tf.nn.selu),
-#         tf.keras.layers.MaxPool2D(
-#             pool_size=(3,3), strides=2, 
-#             padding='same'),
-#         tfp.layers.Convolution2DFlipout(
-#             64, kernel_size=5, strides=1,
-#             kernel_divergence_fn=kernel_divergence_function,
-#             padding='same', activation=tf.nn.selu),
-#         tf.keras.layers.MaxPool2D(
-#             pool_size=(3,3), strides=2,
-#             padding='same'),
-#         tfp.layers.Convolution2DFlipout(
-#             64, kernel_size=5, strides=1,
-#             kernel_divergence_fn=kernel_divergence_function,
-#             padding='same', activation=tf.nn.selu),
-#         tf.keras.layers.MaxPool2D(
-#             pool_size=(3,3), strides=2,
-#             padding='same'),
-#         tfp.layers.Convolution2DFlipout(
-#             128, kernel_size=1, strides=1, 
-#             kernel_divergence_fn=kernel_divergence_function,
-#             padding='same', activation=tf.nn.selu),
-#         tf.keras.layers.MaxPool2D(
-#             pool_size=(3,3), strides=2,
-#             padding='same'),
-#         tf.keras.layers.Flatten(),
-#         tfp.layers.DenseFlipout(
-#             200, kernel_divergence_fn=kernel_divergence_function,
-#             activation=tf.nn.selu),
-#         tfp.layers.DenseFlipout(
-#             200, kernel_divergence_fn=kernel_divergence_function,
-#             activation=tf.nn.selu),
-#         tfp.layers.DenseVariational(
-#             units=NUM_CLASSES,
-#             make_posterior_fn=posterior_mean_field,
-#             make_prior_fn=functools.partial(
-#                 prior_trainable, num_updates=NUM_TRAIN_EXAMPLES),
-#             use_bias=True,
-#             kl_weight=1./NUM_TRAIN_EXAMPLES,
-#             kl_use_exact=True,
-#             name='fc1000',
-#             activation=tf.nn.softmax
-#         )
-#     ])
-#     return model
-
-# def create_model(NUM_EXAMPLES):
-#     # Step_1: define tensorflow model
-#     # Here a typicall vanilla CNN is defined using three Conv layers followed 
-#     # by MaxPooling operations and two fully connected layers 
-#     model = tf.keras.Sequential([
-#         # the first parameter defines the #-of feature maps,
-#         # the second parameter the filter kernel size
-#         tf.keras.layers.Conv2D(3, (5, 5), padding='same'),
-        
-#         tf.keras.layers.Conv2D(96, (7, 7), strides=2, padding='same'),
-#         tf.keras.layers.BatchNormalization(),
-#         tf.keras.layers.Activation('relu'),
-#         tf.keras.layers.MaxPool2D(pool_size=(3,3), strides=2, padding='same'),
-
-#         tf.keras.layers.Conv2D(64, (5,5), strides=1, padding='same'),
-#         tf.keras.layers.BatchNormalization(),
-#         tf.keras.layers.Activation('relu'),
-#         tf.keras.layers.MaxPool2D(pool_size=(3,3), strides=2,),
-
-#         tf.keras.layers.Conv2D(64, (5,5), strides=1, padding='same'),
-#         tf.keras.layers.BatchNormalization(),
-#         tf.keras.layers.Activation('relu'),
-#         tf.keras.layers.MaxPool2D(pool_size=(3,3), strides=2,),
-
-#         tf.keras.layers.Conv2D(128, (1,1), strides=1, padding='same'),
-#         tf.keras.layers.BatchNormalization(),
-#         tf.keras.layers.Activation('relu'),
-#         tf.keras.layers.MaxPool2D(pool_size=(3,3), strides=2,),
-
-#         tf.keras.layers.Flatten(),
-        
-#         tf.keras.layers.Dense(200),
-#         tf.keras.layers.Activation('relu'),
-#         tf.keras.layers.Dense(200),
-#         tf.keras.layers.Activation('relu'),
-#         tf.keras.layers.Dense(NUM_CLASSES, activation='softmax')
-#     ])
-    
-    # optimizer = tf.keras.optimizers.Adam(lr=0.001)
-    # # Use the Categorical_Crossentropy loss since the MNIST dataset contains ten labels.
-    # # The Keras API will then automatically add the Kullback-Leibler divergence (contained 
-    # # on the individual layers of the model), to the cross entropy loss, effectively 
-    # # calculating the (negated) Evidence Lower Bound Loss (ELBO)
-    # model.compile(optimizer,
-    #               loss=tf.keras.losses.CategoricalCrossentropy(),
-    #               metrics=['accuracy'])
-    # return model
 

@@ -6,27 +6,6 @@ keras = tf.keras
 tfd = tfp.distributions
 
 
-def constrain_conv(layer, pre_weights):
-    weights = layer.get_weights()[0]
-    bias = layer.get_weights()[1]
-    # check if it is converged
-    if pre_weights is None or np.all(pre_weights != weights):
-        # Constrain the first layer
-        # Scale by 10k to avoid numerical issues while normalizing
-        weights = weights*10000
-        # Kernel size is 5 x 5 
-        # Set central values to zero to exlude them from the normalization step
-        weights[2, 2, :, :] = 0
-        s = np.sum(weights, axis=(0,1))
-        for i in range(3):
-            weights[:, :, 0, i] /= s[0, i]
-        weights[2, 2, :, :] = -1
-
-    pre_weights = weights
-    layer.set_weights([weights, bias])
-    return pre_weights
-
-
 class constrain_layer(keras.Model, keras.callbacks.Callback):
     def __init__(self, model):
         super(constrain_layer, self).__init__()
@@ -35,8 +14,8 @@ class constrain_layer(keras.Model, keras.callbacks.Callback):
     # Utilized before each batch
     def on_batch_begin(self, batch, logs={}):
         # Get the weights of the first layer
-        weights = self.model.layers[0].get_weights()[0]
-        bias = self.model.layers[0].get_weights()[1]
+        weights = self.model.layers[1].get_weights()[0]
+        bias = self.model.layers[1].get_weights()[1]
         # check if it is converged
         if self.pre_weights is None or np.all(self.pre_weights != weights):
             weights = weights*10000
@@ -47,7 +26,7 @@ class constrain_layer(keras.Model, keras.callbacks.Callback):
             weights[2, 2, :, :] = -1
             self.pre_weights = weights
             # Return the constrained weights back to the network
-            self.model.layers[0].set_weights([weights, bias])
+            self.model.layers[1].set_weights([weights, bias])
 
 
 def make_prior_fn_for_empirical_bayes(init_scale_mean=-1, init_scale_std=0.1):
@@ -124,48 +103,61 @@ def variational_layer(inputs,
         #     loc_initializer=keras.initializers.he_normal()),
         kernel_divergence_fn=divergence_fn)
     
-    x = inputs
-    x = conv(x)
+    x = conv(inputs)
     x = keras.layers.Activation(activation)(x)
     return x
 
 
 def bnn(inputs, std_prior_scale, eb_prior_fn, examples_per_epoch):
 
+    divergence_fn = make_divergence_fn_for_empirical_bayes(
+        std_prior_scale, examples_per_epoch)
+
     x = keras.layers.Conv2D(3, (5, 5), padding='same')(inputs)
 
-    x = variational_layer(inputs=x, num_filters=96, 
-                          kernel_size=7, strides=2,
-                          std_prior_scale=std_prior_scale,
-                          eb_prior_fn=eb_prior_fn,
-                          examples_per_epoch=examples_per_epoch),
+    x = tfp.layers.Convolution2DFlipout(filters=96,
+                                        kernel_size=7,
+                                        strides=2,
+                                        padding='same',
+                                        kernel_prior_fn=eb_prior_fn,
+                                        kernel_divergence_fn=divergence_fn)(x),
+    x = keras.layers.Activation('selu')(x[0]),
     x = keras.layers.MaxPool2D(pool_size=(3,3), 
                                strides=2, 
-                               padding='same')(x),
-    x = variational_layer(inputs=x, num_filters=64, 
-                          kernel_size=5, strides=1,
-                          std_prior_scale=std_prior_scale,
-                          eb_prior_fn=eb_prior_fn,
-                          examples_per_epoch=examples_per_epoch)(x),
-    x = keras.layers.MaxPool2D(pool_size=(3,3), 
-                               strides=2, 
-                               padding='same')(x),
-    x = variational_layer(inputs=x, num_filters=64, 
-                          kernel_size=5, strides=1,
-                          std_prior_scale=std_prior_scale,
-                          eb_prior_fn=eb_prior_fn,
-                          examples_per_epoch=examples_per_epoch)(x),
-    x = keras.layers.MaxPool2D(pool_size=(3,3), 
-                               strides=2, 
-                               padding='same')(x),
-    x = variational_layer(inputs=x, num_filters=128, 
-                          kernel_size=1, strides=1,
-                          std_prior_scale=std_prior_scale,
-                          eb_prior_fn=eb_prior_fn,
-                          examples_per_epoch=examples_per_epoch)(x),                      
-    x = keras.layers.MaxPool2D(pool_size=(3,3), 
-                               strides=2, 
-                               padding='same')(x),
-    x = keras.layers.Flatten()(x)
+                               padding='same')(x[0]),
 
+    x = tfp.layers.Convolution2DFlipout(filters=64,
+                                        kernel_size=5,
+                                        strides=1,
+                                        padding='same',
+                                        kernel_prior_fn=eb_prior_fn,
+                                        kernel_divergence_fn=divergence_fn)(x[0]),
+    x = keras.layers.Activation('selu')(x[0]),
+    x = keras.layers.MaxPool2D(pool_size=(3,3), 
+                               strides=2, 
+                               padding='same')(x[0]),
+                               
+    x = tfp.layers.Convolution2DFlipout(filters=64,
+                                        kernel_size=5,
+                                        strides=1,
+                                        padding='same',
+                                        kernel_prior_fn=eb_prior_fn,
+                                        kernel_divergence_fn=divergence_fn)(x[0]),
+    x = keras.layers.Activation('selu')(x[0]),
+    x = keras.layers.MaxPool2D(pool_size=(3,3), 
+                               strides=2, 
+                               padding='same')(x[0]),
+
+    x = tfp.layers.Convolution2DFlipout(filters=128,
+                                        kernel_size=1,
+                                        strides=1,
+                                        padding='same',
+                                        kernel_prior_fn=eb_prior_fn,
+                                        kernel_divergence_fn=divergence_fn)(x[0]),
+    x = keras.layers.Activation('selu')(x[0]),                 
+    x = keras.layers.MaxPool2D(pool_size=(3,3), 
+                               strides=2, 
+                               padding='same')(x[0]),
+
+    x = keras.layers.Flatten()(x[0])
     return x

@@ -2,5 +2,5 @@ data/base/
 data/dresden/
 .vscode/
 uq_benchmark_2019/
-robustness_dhtd/
 __pycache__
+.ipynb_checkpoints/

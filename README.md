@@ -137,6 +137,14 @@ Would be great if you could repeat your experiments with `batch_size=1`.
 
     [compute_accuracies_at_confidences](https://github.com/google-research/google-research/blob/499fa7141d012c22e6d40898bebeedecee5ce6a7/uq_benchmark_2019/metrics_lib.py#L190)
 
+### Week 6
+
+- understand the empirical bayes method. Maybe it's better to first try using non-learnable prior (standard variance).
+- the model is not able to converge and show poor accuaracy.
+    1. first try to simplied the model and force it to overfit.
+    2. trace the weight and gradient during training using tensorboard.
+- Thnik about what's the difference and advantages using different layers (`tfp.layers.Reparameterization`, `tfp.layers.Flipout` etc.)
+
 ## Note
 
 ### ELBO

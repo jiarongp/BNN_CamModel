@@ -88,8 +88,8 @@ def build_and_train():
 
     model.compile(
         keras.optimizers.Adam(init_learning_rate),
-        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        metrics=[keras.metrics.SparseCategoricalAccuracy()],
+        loss=keras.losses.CategoricalCrossentropy(),
+        metrics=[keras.metrics.CategoricalAccuracy()]
     )
 
     tensorboard_cb = keras.callbacks.TensorBoard(
