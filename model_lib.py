@@ -177,9 +177,9 @@ class BNN(tf.keras.Model):
         x = tf.keras.layers.Activation('selu')(x)
         x = self.maxpool(x)
 
-        x = self.variational_conv2(x)
-        x = tf.keras.layers.Activation('selu')(x)
-        x = self.maxpool(x)
+        # x = self.variational_conv2(x)
+        # x = tf.keras.layers.Activation('selu')(x)
+        # x = self.maxpool(x)
 
         x = self.variational_conv3(x)
         x = tf.keras.layers.Activation('selu')(x)

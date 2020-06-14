@@ -4,12 +4,10 @@ logging.getLogger('tensorflow').disabled = True
 import tensorflow as tf
 import tensorflow_probability as tfp
 import os
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import params
-import proc
-import model
+import data_preparation
+import model_lib
 import utils
 from tqdm import trange
 tfd = tfp.distributions
@@ -22,10 +20,10 @@ def build_and_train():
     utils.set_logger('train.log')
 
     logging.info("Creating the datasets...")
-    class_weights = utils.collect_split_extract()
+    class_weights = data_preparation.collect_split_extract()
 
-    train_iterator = utils.build_dataset('train')
-    val_iterator = utils.build_dataset('val')
+    train_iterator = data_preparation.build_dataset('train')
+    val_iterator = data_preparation.build_dataset('val')
 
     train_size = 0
     val_size = 0
@@ -33,7 +31,7 @@ def build_and_train():
         train_size += len(os.listdir(os.path.join(params.patches_dir, 'train', m)))
         val_size += len(os.listdir(os.path.join(params.patches_dir, 'val', m)))
 
-    bnn = model.BNN(num_examples_per_epoch=train_size)
+    model = model_lib.BNN(num_examples_per_epoch=train_size)
     loss_object = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
     optimizer = tf.keras.optimizers.Adam(lr=params.HParams['init_learning_rate'])
 
@@ -47,8 +45,8 @@ def build_and_train():
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
         optimizer=tf.keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
-        net=bnn)
-    manager = tf.train.CheckpointManager(ckpt, './ckpts/bnn', max_to_keep=3)
+        net=model)
+    manager = tf.train.CheckpointManager(ckpt, './ckpts/tmp', max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
     if manager.latest_checkpoint:
         logging.info("Restored from {}".format(manager.latest_checkpoint))
@@ -59,18 +57,18 @@ def build_and_train():
     @tf.function
     def train_step(images, labels):
         with tf.GradientTape() as tape:
-            logits = bnn(images, training=True)
+            logits = model(images, training=True)
             neg_log_likelihood =loss_object(labels, logits)
-            kl = sum(bnn.losses)
+            kl = sum(model.losses)
             loss = neg_log_likelihood + kl
-        gradients = tape.gradient(loss, bnn.trainable_weights)
-        optimizer.apply_gradients(zip(gradients, bnn.trainable_weights))
+        gradients = tape.gradient(loss, model.trainable_weights)
+        optimizer.apply_gradients(zip(gradients, model.trainable_weights))
         train_loss.update_state(loss)  
         train_accuracy.update_state(labels, logits)
 
     @tf.function
     def val_step(images, label):
-        logits = bnn(images)
+        logits = model(images)
         val_accuracy.update_state(labels, logits)     
 
     logging.info('... Training convolutional neural network\n')
@@ -97,14 +95,14 @@ def build_and_train():
             images, labels = val_iterator.get_next()
             val_step(images, labels)
             
-        logging.info('Epoch: {}, validation accuracy: {:.3%}\n\n'.format(
+        logging.info('Epoch: {}, validation accuracy: {:.3%}\n'.format(
             epoch, val_accuracy.result()))
 
         # every 5 epoch save a check point
         ckpt.step.assign_add(1)
         if int(ckpt.step) % 5 == 0:
             save_path = manager.save()
-            print("Saved checkpoint for step {}: {}\n\n".format(int(ckpt.step), save_path))
+            print("Saved checkpoint for step {}: {}\n".format(int(ckpt.step), save_path))
 
     logging.info('\nFinished training\n')
 
