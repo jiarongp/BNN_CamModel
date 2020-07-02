@@ -1,5 +1,6 @@
 data/base/
 data/dresden/
+data/odd
 .vscode/
 uq_benchmark_2019/
 __pycache__

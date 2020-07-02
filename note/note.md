@@ -145,6 +145,179 @@ Would be great if you could repeat your experiments with `batch_size=1`.
     2. trace the weight and gradient during training using tensorboard.
 - Thnik about what's the difference and advantages using different layers (`tfp.layers.Reparameterization`, `tfp.layers.Flipout` etc.)
 
+### Week 7
+
+**To test the uncertainty output**:
+- First, output the monte carlo draw of the test set images every 50 steps
+- Second, test on the images taken on my phone.
+- Adding post processing to images. (Gaussian blur and adjust JPEG quality)
+
+One observation is that, if using a smaller kl weight (divided by a larger number), the model will converge faster, i.e. have higher accuracy with less epochs, but I assume it doesn't learn the prior distribution well.
+
+- using number of training images, the model converge quickly (96% acc after 5 epochs), but the ouput uncertainty on out-of-distribution data is bad.
+  - ![kl_weight_num_examples](kl_weight_num_examples.png)
+  - ![kl_weight_num_examples_len_bach](lenbach_num_examples.png)
+  - ![kl_weight_num_examples_blur_len_bach](blur_num_examples.png)
+  - ![kl_weight_num_examples_kernel_mean_variance](num_examples_weight_means_stddev.png)
+
+- using number of batches as kl_weights, the model converge slowly and diverge after 6 epochs, but the ouput uncertainty is not improved.(I expect it would have a good distribution of weight)
+  - Result: test loss: 48.905, test accuracy: 79.955% (because its not converging, model using the 6th training epochs, val_loss: 777.0889, val_accuracy: 0.8173), outputs entropy has 0.292 nats. 
+  - ![kl_weight_num_batches](kl_weight_num_batches.png)
+  - ![kl_weight_num_batches_len_bach](lenbach_num_batches.png)
+  - ![kl_weight_num_batches_blur_len_bach](blur_num_batches.png)
+  - ![kl_weight_num_batches_kernel_mean_variance](num_batches_weight_means_stddev.png)
+
+- using model.add is not the same as defining the sequential model straightfowardly. (bug on tfp)
+
+
+Todo:
+- [ ] Why my code has different loss, about a half of the loss of keras code?
+- [ ] Tweak the kl_weight.
+- [ ] set `kl_weight` to 0 to see if the model will converge, if it does, nothing wrong with the initialization.
+- [ ] use scalar to describe the variance of prediction.
+
+## Week 8
+
+The default initialization of the `kernel_posterior` is:
+
+```python
+tfp.layers.default_mean_field_normal_fn(
+    is_singular=False, loc_initializer=tf1.initializers.random_normal(stddev=0.1),
+    untransformed_scale_initializer=tf1.initializers.random_normal(mean=-3.0,
+    stddev=0.1), loc_regularizer=None, untransformed_scale_regularizer=None,
+    loc_constraint=None, untransformed_scale_constraint=None
+)
+```
+The **mean** of the `kernel_posterior` is intialized by a zero mean with 0.1 stddev Gaussian, the **standard deviation** is initialized by a -3.0 mean with 0.1 standard deviation (before softplus, so this is the $\rho$). After softplus it is 0.04858735157374196 (`np.log(1 + np.exp(-3))`).
+
+The `kernel_prior` is a standard normal distribution (0 mean with 1 standarddeviation). After training, the `kernel_posterior` should shift towards the `kernel_prior`.
+
+The dataset has 41,325 training images, 1292 batches.
+
+### Problem
+- When set the kl_weight to num_batches, the kl loss becomes negative.
+- [x] using the epsitemic and aleatoric decomposition from the [code](https://gitlab.cs.fau.de/snippets/101), it will be a K by K matrix, where K is the number of classes. Does the diagonal of this matrix indicates the uncertainty? (It's a auto covariance matrix to me.) 
+  - [answer from kwon](https://github.com/ykwon0407/UQ_BNN/issues/3#issuecomment-452525593)
+  - Also, there is a way to calculate the uncertainty (here)[https://github.com/ykwon0407/UQ_BNN/issues/3#issuecomment-455529058]
+
+
+### 10 times num_batches
+
+trained 10 epochs, diverge after 5 epochs, 
+
+<img src="10_num_batches/epoch_accuracy.svg" width="400">
+<img src="10_num_batches/epoch_loss.svg" width="400">
+
+
+```
+Epoch 1/10
+loss: 133.7316 - accuracy: 0.6160 - val_loss: 118.0698 - val_accuracy: 0.8176
+Epoch 2/10
+loss: 127.5537 - accuracy: 0.8601 - val_loss: 120.0852 - val_accuracy: 0.9262
+Epoch 3/10
+loss: 128.0877 - accuracy: 0.9088 - val_loss: 123.0477 - val_accuracy: 0.9007
+Epoch 4/10
+loss: 130.3315 - accuracy: 0.8952 - val_loss: 123.0095 - val_accuracy: 0.9362
+Epoch 5/10
+loss: 128.7409 - accuracy: 0.8810 - val_loss: 118.6900 - val_accuracy: 0.9288
+Epoch 6/10
+loss: 141.9019 - accuracy: 0.8795 - val_loss: 142.1279 - val_accuracy: 0.7591
+Epoch 7/10
+loss: 160.6388 - accuracy: 0.7838 - val_loss: 116.5953 - val_accuracy: 0.8590
+Epoch 8/10
+loss: 132.0206 - accuracy: 0.6244 - val_loss: 120.9902 - val_accuracy: 0.6095
+Epoch 9/10
+loss: 128.2323 - accuracy: 0.6142 - val_loss: 118.1300 - val_accuracy: 0.6710
+Epoch 10/10
+loss: 130.9932 - accuracy: 0.6074 - val_loss: 117.8660 - val_accuracy: 0.5899
+```
+<img src="10_num_batches/trained_posterior.png" width="800">
+
+mean of mean is -0.005809836555272341, mean variance is 0.05363716930150986
+12 out of 25 patches output high variance, others are over confident on Canon Ixus70.
+
+```python
+def make_prior_fn_for_empirical_bayes(init_scale_mean=-1, init_scale_std=0.1):
+    """Returns a prior function with stateful parameters for EB models."""
+    def prior_fn(dtype, shape, name, _, add_variable_fn):
+        """A prior for the variational layers."""
+        untransformed_scale = add_variable_fn(
+            name=name + '_untransformed_scale',
+            shape=(1,),
+            initializer=tf.compat.v1.initializers.random_normal(
+                mean=init_scale_mean, stddev=init_scale_std),
+            dtype=dtype,
+            trainable=False)
+        loc = add_variable_fn(
+            name=name + '_loc',
+            initializer=keras.initializers.Zeros(),
+            shape=shape,
+            dtype=dtype,
+            trainable=True)
+        scale = 1e-6 + tf.nn.softplus(untransformed_scale)
+        dist = tfd.Normal(loc=loc, scale=scale)
+        batch_ndims = tf.size(input=dist.batch_shape_tensor())
+        return tfd.Independent(dist, reinterpreted_batch_ndims=batch_ndims)
+    return prior_fn
+```
+
+Change the init_prior_scale_mean from -1.9994 (after softplus 0.12699955169791002) to -3 (after softplus 0.04858735157374196).
+-3 is the default value when without eb.
+
+### 10 times num_batches with empirical bayes
+
+```
+Epoch 1/10 
+loss: 116.6549 - accuracy: 0.4297 - val_loss: 76.1993 - val_accuracy: 0.5235
+Epoch 2/10
+loss: 56.2346 - accuracy: 0.5342 - val_loss: 28.1259 - val_accuracy: 0.6680
+Epoch 3/10
+loss: 20.1925 - accuracy: 0.7512 - val_loss: 3.9227 - val_accuracy: 0.8650
+Epoch 4/10
+loss: 3.8699 - accuracy: 0.8735 - val_loss: -1.9055 - val_accuracy: 0.8535
+Epoch 5/10
+loss: -6.5991 - accuracy: 0.9306 - val_loss: -10.5771 - val_accuracy: 0.9449
+Epoch 6/10
+loss: -10.8080 - accuracy: 0.9437 - val_loss: -13.0366 - val_accuracy: 0.9685
+Epoch 7/10
+loss: -7.1047 - accuracy: 0.9465 - val_loss: -5.1038 - val_accuracy: 0.9506
+Epoch 8/10
+loss: -0.2450 - accuracy: 0.9366 - val_loss: -3.7718 - val_accuracy: 0.9139
+Epoch 00008: early stopping
+saved trained_posterior.png
+mean of mean is 0.003459890838712454, mean variance is 0.040473055094480515
+```
+Why negative loss?
+
+
+```
+5_train_size_eb
+Epoch 1/10
+loss: 33.4830 - accuracy: 0.5599 - val_loss: 27.7630 - val_accuracy: 0.6118
+Epoch 2/10
+loss: 35.9914 - accuracy: 0.6383 - val_loss: 26.6323 - val_accuracy: 0.5419                                                                         
+Epoch 3/10
+loss: 30.7481 - accuracy: 0.6981 - val_loss: 20.4589 - val_accuracy: 0.7048                                                                         
+Epoch 4/10
+loss: 24.0680 - accuracy: 0.8220 - val_loss: 17.2153 - val_accuracy: 0.8588                                                                         
+Epoch 5/10
+loss: 24.5107 - accuracy: 0.8579 - val_loss: 16.5920 - val_accuracy: 0.9078                                                                         
+Epoch 6/10
+loss: 29.8542 - accuracy: 0.8400 - val_loss: 20.4721 - val_accuracy: 0.8602                                                                         
+Epoch 7/10
+loss: 37.0488 - accuracy: 0.8343 - val_loss: 21.1433 - val_accuracy: 0.6466 
+```
+
+## Week 9
+
+- output score of epistemic uncertainty for the images
+- plot ROC curve?
+
+About aleatoric and epistemic uncertainty
+> In a nutshell, viewing a model’s aleatoric uncertainty output should caution us to factor in appropriate deviations when making our predictions, while inspecting epistemic uncertainty should help us re-think the appropriateness of the chosen model.
+
+
+
 ## Note
 
 ### ELBO
@@ -163,3 +336,29 @@ ELBO is a lower bound on $log P(Y | X)$, i.e. the log-likelihood of the labels g
 Fit model to the data by maximizing the probability of the labels, or equivalently, minimizing the negative log-likelihood loss: $-log P(y | x)$.
 
 Mean squared error loss for continuous labels, for example, means that $P(y | x, w)$ is a normal distribution with a fixed scale (standard deviation). Cross-entropy loss for classification means that $P(y | x, w)$ is the categorical distribution.
+
+### [Empirical Bayes](https://colab.research.google.com/github/CamDavidsonPilon/Probabilistic-Programming-and-Bayesian-Methods-for-Hackers/blob/master/Chapter6_Priorities/Ch6_Priors_TFP.ipynb#scrollTo=DD_MDbroh3zQ&line=25&uniqifier=1)
+
+While not a true Bayesian method, *empirical Bayes* is a trick that combines frequentist and Bayesian inference. As mentioned previously, for (almost) every inference problem there is a Bayesian method and a frequentist method. The significant difference between the two is that Bayesian methods have a prior distribution, with hyperparameters $\alpha$, while empirical methods do not have any notion of a prior. Empirical Bayes combines the two methods by using frequentist methods to select $\alpha$, and then proceeds with Bayesian methods on the original problem. 
+
+A very simple example follows: suppose we wish to estimate the parameter $\mu$ of a Normal distribution, with $\sigma = 5$. Since $\mu$ could range over the whole real line, we can use a Normal distribution as a prior for $\mu$. How to select the prior's hyperparameters, denoted ($\mu_p, \sigma_p^2$)? The $\sigma_p^2$ parameter can be chosen to reflect the uncertainty we have. For $\mu_p$, we have two options:
+
+**Option 1**: Empirical Bayes suggests using the empirical sample mean, which will center the prior around the observed empirical mean:
+
+$$ \mu_p = \frac{1}{N} \sum_{i=0}^N X_i $$
+
+**Option 2**: Traditional Bayesian inference suggests using prior knowledge, or a more objective prior (zero mean and fat standard deviation).
+
+Empirical Bayes can be argued as being semi-objective, since while the choice of prior model is ours (hence subjective), the parameters are solely determined by the data.
+
+Personally, I feel that Empirical Bayes is *double-counting* the data. That is, we are using the data twice: once in the prior, which will influence our results towards the observed data, and again in the inferential engine of MCMC. This double-counting will understate our true uncertainty. To minimize this double-counting, I would only suggest using Empirical Bayes when you have *lots* of observations, else the prior will have too strong of an influence. I would also recommend, if possible, to maintain high uncertainty (either by setting a large $\sigma_p^2$ or equivalent.)
+
+Empirical Bayes also violates a theoretical axiom in Bayesian inference. The textbook Bayesian algorithm of:
+
+>*prior* $\Rightarrow$ *observed data* $\Rightarrow$ *posterior* 
+
+is violated by Empirical Bayes, which instead uses 
+
+>*observed data* $\Rightarrow$ *prior* $\Rightarrow$ *observed data* $\Rightarrow$ *posterior*
+
+Ideally, all priors should be specified *before* we observe the data, so that the data does not influence our prior opinions (see the volumes of research by Daniel Kahneman *et. al* about [anchoring](http://en.wikipedia.org/wiki/Anchoring_and_adjustment)).

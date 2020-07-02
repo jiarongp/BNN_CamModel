@@ -1,5 +1,5 @@
-brands = ['Canon', 'Nikon']
-models = ['Ixus70', 'D200']
+brands = ['Canon', 'Nikon', 'Olympus']
+models = ['Ixus70', 'D200', 'mju-1050SW']
 brand_models = ['_'.join([b, m]) for (b, m) in zip(brands, models)]
 # label_to_num = {}
 # for i in range(len(brand_models)):
@@ -16,6 +16,7 @@ patches_dir = 'data/base'
 BATCH_SIZE = 32
 NUM_EPOCHS = 10
 NUM_CLASSES = len(brand_models)
+num_monte_carlo = 30
 
 HParams = {'init_learning_rate':0.001,
            'init_prior_scale_mean':-1.9994,
