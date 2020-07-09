@@ -1,7 +1,7 @@
-data/base/
-data/dresden/
-data/odd
-.vscode/
-uq_benchmark_2019/
-__pycache__
-.ipynb_checkpoints/
+data/*/
+*.vscode/
+*__pycache__
+*.ipynb_checkpoints/
+ckpts/
+logs/
+tfp_bayesian/

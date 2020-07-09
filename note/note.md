@@ -289,32 +289,21 @@ mean of mean is 0.003459890838712454, mean variance is 0.040473055094480515
 ```
 Why negative loss?
 
-
-```
-5_train_size_eb
-Epoch 1/10
-loss: 33.4830 - accuracy: 0.5599 - val_loss: 27.7630 - val_accuracy: 0.6118
-Epoch 2/10
-loss: 35.9914 - accuracy: 0.6383 - val_loss: 26.6323 - val_accuracy: 0.5419                                                                         
-Epoch 3/10
-loss: 30.7481 - accuracy: 0.6981 - val_loss: 20.4589 - val_accuracy: 0.7048                                                                         
-Epoch 4/10
-loss: 24.0680 - accuracy: 0.8220 - val_loss: 17.2153 - val_accuracy: 0.8588                                                                         
-Epoch 5/10
-loss: 24.5107 - accuracy: 0.8579 - val_loss: 16.5920 - val_accuracy: 0.9078                                                                         
-Epoch 6/10
-loss: 29.8542 - accuracy: 0.8400 - val_loss: 20.4721 - val_accuracy: 0.8602                                                                         
-Epoch 7/10
-loss: 37.0488 - accuracy: 0.8343 - val_loss: 21.1433 - val_accuracy: 0.6466 
-```
-
 ## Week 9
 
 - output score of epistemic uncertainty for the images
-- plot ROC curve?
+- plot ROC curve? (I don't get the idea how to automatically classifiy them)
+- calibration, brier score
 
 About aleatoric and epistemic uncertainty
 > In a nutshell, viewing a model’s aleatoric uncertainty output should caution us to factor in appropriate deviations when making our predictions, while inspecting epistemic uncertainty should help us re-think the appropriateness of the chosen model.
+
+- [Uncertainty & Out-of-Distribution Robustness in Deep Learning](http://www.gatsby.ucl.ac.uk/~balaji/mluq-talk-balaji.pdf) Good introductory talk for bayesian neural network.
+
+- standard CNN, Dan Hendrys method
+- BNN, Dan Hendrys  (for loop outside the test_step)
+  - histogram of variance
+  - ROC curve
 
 
 
@@ -362,3 +351,85 @@ is violated by Empirical Bayes, which instead uses
 >*observed data* $\Rightarrow$ *prior* $\Rightarrow$ *observed data* $\Rightarrow$ *posterior*
 
 Ideally, all priors should be specified *before* we observe the data, so that the data does not influence our prior opinions (see the volumes of research by Daniel Kahneman *et. al* about [anchoring](http://en.wikipedia.org/wiki/Anchoring_and_adjustment)).
+
+### Factors that influence the performance of a SVI BNN
+
+- KL-weight, the larger it is, the higher the uncertainty, but the accuracy will decrease.
+- The depth of the network (number of variational layers), the more layers it has, the higher the KL-loss.
+- The scale and mean of the scale. The weight after softplus $variance = log(1+exp(\rho))$. $\rho = \mu + \epsilon \odot \sigma$, $\mu$ is the mean of untransformed variance, $\epsilon \in \mathcal{N}(\mathbf{0}, \mathbf{I})$. Notice that this is different from the softplus of the weight, in tensorflow probability, the untransformed variance is also controlled by a mean and variance.
+- The number of training examples, the more training examples, the more the certain the model is.
+- In the notebook `Bayesian linear regression: Impact of prior variance`, it shows that the kl divergence gets smaller when $\alpha$ (controls the magnitude of the prior variance) get larger, but the marginal log likelihood (the overall performance of the model, including accuracy and uncertainty) decrease.
+
+### [ROC Curves and Presicion-Recall Curves](https://machinelearningmastery.com/roc-curves-and-precision-recall-curves-for-classification-in-python/)
+#### ROC Curve
+
+It is a plot of the false positive rate (x-axis) versus the true positive rate (y-axis) for a number of different candidate threshold values between 0.0 and 1.0. Put another way, it plots the false alarm rate versus the hit rate.
+
+The true positive rate is also referred to as **Sensitivity**:
+`True Positive Rate = True Positives / (True Positives + False Negatives)`
+
+The false positive rate is called the false alarm rate as it summarizes how often a positive class is predicted when the actual outcome is negative:
+`False Positive Rate = False Positives / (False Positives + True Negatives)`
+
+The false positive rate is also referred to as the inverted specificity where specificity is the total number of true negatives divided by the sum of the number of true negatives and false positives:
+`Specificity = True Negatives / (True Negatives + False Positives)` where: `False Positive Rate = 1 - Specificity`
+
+#### Precision-Recall Curves
+
+Precision describes how good the model is at predicting the positive class:
+`Precision = True Positives / (True Positives + False Positives)`
+
+Recall is the same as **Sensitivity**:
+`Recall = True Positives / (True Positives + False Negatives)`
+
+Reviewing both precision and recall is useful in cases where there is an imbalance in the observations between the two classes. There are many examples of no event (class 0) and only a few examples of an event (class 1). If we only interest in the ability of the model predicting the minority class (class 1), this can help us to avoid the high true negatives affect the evaluation (no true positives in the formula, right?).
+
+A precision-recall curve is a plot of the precision (y-axis) and the recall (x-axis) for different thresholds, much like the ROC curves.
+> While the baseline is fixed with ROC, the baseline of [precision-recall curve] is determined by the ratio of positives (P) and negatives (N) as y = P / (P + N). For instance, we have y = 0.5 for a balanced class distribution …
+
+
+When to use:
+- ROC curves should be used when there are roughly equal numbers of observations for each class. (Too optimistic in class imbalance problem)
+- Precision-Recall curves should be used when there is a moderate to large class imbalance.
+
+Summary:
+- ROC Curves summarize the trade-off between the true positive rate and false positive rate for a predictive model using different probability thresholds.
+- Precision-Recall curves summarize the trade-off between the true positive rate and the positive predictive value for a predictive model using different probability thresholds.
+- ROC curves are appropriate when the observations are balanced between each class, whereas precision-recall curves are appropriate for imbalanced datasets.
+
+### *A Baseline for Detecting Missclassified and Out-of-Distribution Examples in Neural Network*
+
+Motivation: Detecting if an example is misclassified or out-of-distribution.
+
+Observation: 
+- prediction probability from a softmax distribution has a poor direct correspondence to confidence.
+- Correctly classified examples tend to have greater maximum softmax probabilityies than erroneously classified and out-of-distribution examples,  allowing for their detection.
+
+Problems:
+1. **error and success prediction**: can we predict wether a trained classifier will make an error on a particular held-out test example?
+2. **in- and out-of-distribution detection**: can we predict whether a test example is from a different distribution from the training data; can we predict if it is from within the same distribution?
+
+**comparing detectors is not as straightfoward as using accuracy.**
+
+In a class imbalance setting, the classifier may tend to output one of the class, which is misleading. We have to specify a score threshold so that it can classify correctly, but this depends upon the trade-off between false negatives (fn) and false positives(fp).
+
+Two evaluation methods:
+- AUROC
+  - a threshold-independent performance evaluation.
+  - the AUROC can be interpreted as the probability that a positive example has a greater detector score/value than a negative example.
+- AUPR
+  - for the suitation that positive class negative class have greatly differing base rates (depends on the **true positive rate**)
+  - so we have to specify the positive class
+
+**Softmax Prediction Probability As A Baseline**:
+1. Separate correctly and incorrectly classified *test set* examples and, for each example, compute the softmax probability of the predicted class, i.e., the maximum softmax probability.
+2. obtain AUROC and AUPR. These two areas summarize the performance of a binary classifier discriminating with values/scores across different thresholds.
+
+This means, if we want to know whether an example is classified correctly or not, we can plot the AUROC or AUPR of the example, the AUPR should be very low.
+
+> A debatable, imprecise interpretation of AUROC values may be as follows: 90%—100%: Excellent, 80%—90%: Good, 70%—80%: Fair, 60%—70%: Poor, 50%—60%: Fail.
+
+## How to measure the quality of the preditive uncertainty?
+
+1. Calibration
+   - Measure how well the model predictive confidence algin with the observed accuracy

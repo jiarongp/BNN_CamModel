@@ -7,24 +7,26 @@ import params
 from tqdm import tqdm
 import urllib
 import tensorflow as tf
+import tensorflow_addons as tfa
 from multiprocessing import Pool
 from skimage.util.shape import view_as_blocks
 from skimage import io
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
-def _collect_dataset(data, images_dir, download=False):
+def collect_dataset(data, images_dir, brand_models, download=False):
     """Download data from the input csv to specific directory
     Args:
         data: a csv file storing the dataset with filename, model, brand and etc.
-        images_dir: target root directory for the downloaded images
+        images_dir: target root directory for the downloaded images.
+        brand_models: the brand_model name of the target images.
+        download: if your are sure the data are already there, just use False.
     Return:
         path_list: a list of paths of images. For example: 'image_dir/brand_model/filname.jpg'
     """
     csv_rows = []
     path_list = []
-    brand_models = params.brand_models
-    dirs = [os.path.join(params.dresden_images_dir, d) for d in brand_models]
+    dirs = [os.path.join(images_dir, d) for d in brand_models]
     for path in dirs:
         if not os.path.exists(path):
             os.makedirs(path)
@@ -71,7 +73,7 @@ def _collect_dataset(data, images_dir, download=False):
     return path_list
 
 
-def _split_dataset(img_list, seed=42):
+def split_dataset(img_list, brand_models, seed=42):
     """Split dataset into train, validation and test
     Args:
         img_list: the dataset need to be split, which is a list of paths of images
@@ -92,7 +94,7 @@ def _split_dataset(img_list, seed=42):
     test_list = img_list[(num_train + num_val):]
     # print out the split information
     split_ds = []
-    for model in params.brand_models:
+    for model in brand_models:
         train = fnmatch.filter(train_list, '*' + model + '*')
         logging.info("{} in training set: {}.".format(model, len(train)))
         val = fnmatch.filter(val_list, '*' + model + '*')
@@ -125,7 +127,7 @@ def _patchify(img_path, patch_span=params.patch_span):
     return patches
 
 
-def _patch(path, dataset):
+def patch(path, dataset, parent_dir):
     """call the extract function to extract patches from full-sized image
     Args:
         path: paths for images needed to be split into patches
@@ -134,8 +136,8 @@ def _patch(path, dataset):
     imgs_list = []
     for img_path in path:
         imgs_list += [{'dataset':dataset,
-                    'img_path':img_path
-                    }]
+                       'img_path':img_path,
+                       'parent_dir':parent_dir}]
     num_processes = 8
     pool = Pool(processes=num_processes)
     pool.map(_extract, imgs_list)
@@ -158,8 +160,9 @@ def _extract(args):
                         os.path.splitext(os.path.split(args['img_path'])[-1])[0]+'_'+'{:02}'.format(patch_idx) + '.png')\
                         for patch_idx in range(params.patch_num)]
     read_img = False
+    parent_dir = args['parent_dir']
     for out_path in output_rel_paths:
-        out_fullpath = os.path.join(params.patches_dir, out_path)
+        out_fullpath = os.path.join(parent_dir, out_path)
 
         # if there is no this path, then we have to read images
         if not os.path.exists(out_fullpath):
@@ -167,9 +170,8 @@ def _extract(args):
             break
     if read_img:
         patches = _patchify(args['img_path']).reshape((-1, 256, 256))
-    
         for out_path, patch in zip(output_rel_paths, patches):
-            out_fullpath = os.path.join(params.patches_dir, out_path)
+            out_fullpath = os.path.join(parent_dir, out_path)
             # the diretory of the patches images
             out_fulldir = os.path.split(out_fullpath)[0]
             if not os.path.exists(out_fulldir):
@@ -179,28 +181,29 @@ def _extract(args):
     return output_rel_paths
 
 
-def collect_split_extract(download_images=False):
+def collect_split_extract(parent_dir, download_images=False):
     # collect data if not downloaded
     data = pd.read_csv(params.dresden)
     data = data[([m in params.models for m in data['model']])]
-    image_paths = _collect_dataset(data, params.dresden_images_dir, download=download_images)
+    image_paths = collect_dataset(data, 
+                                  params.dresden_images_dir,
+                                  params.brand_models,
+                                  download=download_images)
 
     # split dataset in train, val and test
-    split_ds = _split_dataset(image_paths)
+    split_ds = split_dataset(image_paths, 
+                              brand_models=params.brand_models)
     # extract patches from full-sized images
     for i in range(len(params.brand_models)):
         logging.info("... Extracting patches from {} images".format(params.brand_models[i]))
-        _patch(path=split_ds[i][0], dataset='train')
-        _patch(path=split_ds[i][1], dataset='val')
-        _patch(path=split_ds[i][2], dataset='test')
+        patch(path=split_ds[i][0], dataset='train', parent_dir=parent_dir)
+        patch(path=split_ds[i][1], dataset='val', parent_dir=parent_dir)
+        patch(path=split_ds[i][2], dataset='test', parent_dir=parent_dir)
         logging.info("... Done\n")
 
 
 def _parse_image(img_path):
     label = tf.strings.split(img_path, os.path.sep)[-2]
-#     for i in len(params.brand_models):
-#         if tf.equal(label, params.brand_models[i]):
-#             tf.cast(matches, tf.float32)
     matches = tf.stack([tf.equal(label, s) for s in params.brand_models], axis=-1)
     onehot_label = tf.cast(matches, tf.float32)
 

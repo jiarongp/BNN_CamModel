@@ -17,7 +17,9 @@ def evaluate():
     utils.set_logger('evaluate.log')
     num_monte_carlo = 30
     test_size = 0
+    train_size = 0
     for m in params.brand_models:
+        train_size += len(os.listdir(os.path.join(params.patches_dir, 'train', m)))
         test_size += len(os.listdir(os.path.join(params.patches_dir, 'test', m)))
     num_train_steps = (test_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE
     # Create the input data pipeline
@@ -26,49 +28,18 @@ def evaluate():
 
     # Define the model
     logging.info("Creating the model...")
-    model = model_lib.BNN(10 * num_train_steps)
+    model = model_lib.BNN(train_size)
     test_loss = tf.keras.metrics.Mean(name='test_loss')
     test_accuracy = tf.keras.metrics.CategoricalAccuracy(name='test_accuracy')
 
-    names = [layer.name for layer in model.layers 
-        if 'flipout' in layer.name]
-    # dense_flipout/kernel_posterior_loc:0
-    qm_vals = [layer.kernel_posterior.mean() 
-            for layer in model.layers
-            if 'flipout' in layer.name]
-    # this stddev is after softplus
-    qs_vals = [layer.kernel_posterior.stddev()
-            for layer in model.layers
-            if 'flipout' in layer.name]
-
-    utils.plot_weight_posteriors(names, qm_vals, qs_vals, fname="initial_weight.png")
-    logging.info("mean of mean is {}, mean variance is {}".
-                format(tf.reduce_mean(qm_vals[0]),
-                tf.reduce_mean(qs_vals[0])))
 
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
         optimizer=tf.keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
         net=model)
-    manager = tf.train.CheckpointManager(ckpt, './ckpts/10_num_batches', max_to_keep=3)
+    manager = tf.train.CheckpointManager(ckpt, './ckpts/BNN_2', max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
     logging.info("Restored from {}".format(manager.latest_checkpoint))
-
-    names = [layer.name for layer in model.layers 
-            if 'flipout' in layer.name]
-    # dense_flipout/kernel_posterior_loc:0
-    qm_vals = [layer.kernel_posterior.mean() 
-            for layer in model.layers
-            if 'flipout' in layer.name]
-    # this stddev is after softplus
-    qs_vals = [layer.kernel_posterior.stddev()
-            for layer in model.layers
-            if 'flipout' in layer.name]
-
-    utils.plot_weight_posteriors(names, qm_vals, qs_vals, fname="trained_weight.png")
-    logging.info("mean of mean is {}, mean variance is {}".
-                format(tf.reduce_mean(qm_vals[0]),
-                tf.reduce_mean(qs_vals[0])))
 
     @tf.function
     def test_step(images, label):
@@ -98,7 +69,20 @@ def evaluate():
 
     logging.info('test loss: {:.3f}, test accuracy: {:.3%}\n'.format(test_loss.result(),
                                                         test_accuracy.result()))
-                              
+
+    names = [layer.name for layer in model.layers 
+            if 'flipout' in layer.name]
+    qm_vals = [layer.kernel_posterior.mean() 
+            for layer in model.layers
+            if 'flipout' in layer.name]
+    qs_vals = [layer.kernel_posterior.stddev() 
+            for layer in model.layers
+            if 'flipout' in layer.name]
+
+    utils.plot_weight_posteriors(names, qm_vals, qs_vals, fname="trained_weight.png")
+    logging.info("mean of mean is {}, mean variance is {}".
+                format(tf.reduce_mean(qm_vals[0]),
+                tf.reduce_mean(qs_vals[0])))                              
 
 if __name__ == '__main__':
     evaluate()
