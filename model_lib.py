@@ -29,7 +29,7 @@ def constrain_conv(layer, pre_weights):
     layer.set_weights([weights, bias])
     return pre_weights
 
-class BNN(tf.keras.Model):
+class BNN(keras.Model):
     def __init__(self, kl_weight):
                 #  eb_prior_fn, 
                 #  examples_per_epoch):
@@ -40,7 +40,7 @@ class BNN(tf.keras.Model):
         self.constrained_weights = None
         # no non-linearity after constrained layer
         self.constrained_conv = \
-            tf.keras.layers.Conv2D(3, (5, 5), 
+            keras.layers.Conv2D(3, (5, 5), 
                                 padding='same', 
                                 input_shape=[None, 
                                 params.IMG_WIDTH, 
@@ -80,23 +80,23 @@ class BNN(tf.keras.Model):
         x = self.constrained_conv(x)
 
         x = self.variational_conv1(x)
-        x = tf.keras.layers.MaxPool2D(pool_size=3,
+        x = keras.layers.MaxPool2D(pool_size=3,
                                       strides=2,
                                       padding='SAME')(x)
 
         x = self.variational_conv2(x)
-        x = tf.keras.layers.MaxPool2D(pool_size=3, 
+        x = keras.layers.MaxPool2D(pool_size=3, 
                                       strides=2)(x)
 
         x = self.variational_conv3(x)
-        x = tf.keras.layers.MaxPool2D(pool_size=3, 
+        x = keras.layers.MaxPool2D(pool_size=3, 
                                       strides=2)(x)
         
         x = self.variational_conv4(x)
-        x = tf.keras.layers.MaxPool2D(pool_size=3, 
+        x = keras.layers.MaxPool2D(pool_size=3, 
                                       strides=2)(x)
 
-        x = tf.keras.layers.Flatten()(x)
+        x = keras.layers.Flatten()(x)
         x = self.dense1(x)
         x = self.dense2(x)
         x = self.dense3(x)
@@ -107,3 +107,71 @@ class BNN(tf.keras.Model):
                           self.constrained_weights)
         return x
 
+class vanilla(keras.Model):
+    def __init__(self):
+                #  eb_prior_fn, 
+                #  examples_per_epoch):
+        super(vanilla, self).__init__()
+        self.constrained_weights = None
+        # no non-linearity after constrained layer
+        self.constrained_conv = keras.layers.Conv2D(3, (5, 5), 
+                                                    padding='same', 
+                                                    input_shape=[None, 
+                                                    params.IMG_WIDTH, 
+                                                    params.IMG_HEIGHT, 1])
+        self.conv1 = keras.layers.Conv2D(96, kernel_size=7,
+                                         strides=2, padding='same')
+        self.bn1 = keras.layers.BatchNormalization()
+        self.conv2 = keras.layers.Conv2D(64, kernel_size=5,
+                                         strides=1, padding='same')
+        self.bn2 = keras.layers.BatchNormalization()
+        self.conv3 = keras.layers.Conv2D(64, kernel_size=5,
+                                         strides=1, padding='same')
+        self.bn3 = keras.layers.BatchNormalization()
+        self.conv4 = keras.layers.Conv2D(128, kernel_size=1,
+                                         strides=1, padding='same')
+        self.bn4 = keras.layers.BatchNormalization()
+        self.dense1 = keras.layers.Dense(200)
+        self.dense2 = keras.layers.Dense(200)
+        self.dense3 = keras.layers.Dense(NUM_CLASSES)
+
+    def call(self, x, training=False):
+        x = self.constrained_conv(x)
+
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = keras.layers.Activation('relu')(x)
+        x = keras.layers.MaxPool2D(pool_size=3,
+                                   strides=2,
+                                   padding='SAME')(x)
+
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = keras.layers.Activation('relu')(x)
+        x = keras.layers.MaxPool2D(pool_size=3, 
+                                    strides=2)(x)
+
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = keras.layers.Activation('relu')(x)
+        x = keras.layers.MaxPool2D(pool_size=3, 
+                                    strides=2)(x)
+        
+        x = self.conv4(x)
+        x = self.bn4(x)
+        x = keras.layers.Activation('relu')(x)
+        x = keras.layers.MaxPool2D(pool_size=3, 
+                                    strides=2)(x)
+
+        x = keras.layers.Flatten()(x)
+        x = self.dense1(x)
+        x = keras.layers.Activation('relu')(x)
+        x = self.dense2(x)
+        x = keras.layers.Activation('relu')(x)
+        x = self.dense3(x)
+
+        if training:
+            self.constrained_weights = constrain_conv(
+                          self.constrained_conv, 
+                          self.constrained_weights)
+        return x

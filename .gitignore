@@ -5,3 +5,4 @@ data/*/
 ckpts/
 logs/
 tfp_bayesian/
+results/

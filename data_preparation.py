@@ -138,9 +138,11 @@ def patch(path, dataset, parent_dir):
         imgs_list += [{'dataset':dataset,
                        'img_path':img_path,
                        'parent_dir':parent_dir}]
-    num_processes = 8
-    pool = Pool(processes=num_processes)
-    pool.map(_extract, imgs_list)
+    # num_processes = 4
+    # pool = Pool(processes=num_processes)
+    # pool.map(_extract, imgs_list)
+    for img in imgs_list:
+        _extract(img)
 
 
 def _extract(args):
@@ -178,7 +180,7 @@ def _extract(args):
                 os.makedirs(out_fulldir)
             if not os.path.exists(out_fullpath):
                 io.imsave(out_fullpath, patch, check_contrast=False)
-    return output_rel_paths
+    # return output_rel_paths
 
 
 def collect_split_extract(parent_dir, download_images=False):
@@ -202,18 +204,33 @@ def collect_split_extract(parent_dir, download_images=False):
         logging.info("... Done\n")
 
 
-def _parse_image(img_path):
+def parse_image(img_path, post_processing=None):
     label = tf.strings.split(img_path, os.path.sep)[-2]
     matches = tf.stack([tf.equal(label, s) for s in params.brand_models], axis=-1)
     onehot_label = tf.cast(matches, tf.float32)
 
     # load the raw data from the file as a string
-    img = tf.io.read_file(img_path)
-    img = tf.image.decode_jpeg(img, channels=1)
+    image = tf.io.read_file(img_path)
+    image = tf.image.decode_jpeg(image, channels=1)
     # image covert to tf.float32 and /255.
-    img = tf.image.convert_image_dtype(img, tf.float32)
+    image = tf.image.convert_image_dtype(image, tf.float32)
+
+    if post_processing == 'jpeg':
+        image = tf.image.adjust_jpeg_quality(image, 70)
+    elif post_processing == 'blur':
+        image = tfa.image.gaussian_filter2d(image, 
+                                            filter_shape=[5, 5],
+                                            sigma=1.1)
+    elif post_processing == 'noise':
+        # image must be scaled in [0, 1]
+        noise = tf.random.normal(shape=tf.shape(image), 
+                                 mean=0.0, stddev=(2)/(255),
+                                 dtype=tf.float32)
+        image += noise
+    
+    image = tf.clip_by_value(image, 0.0, 1.0)
     # img = tf.image.resize(img, [params.IMG_HEIGHT, params.IMG_WIDTH])
-    return img, onehot_label
+    return image, onehot_label
 
 
 def post_process(filename, post_processing=None):
@@ -245,32 +262,71 @@ def build_dataset(dataset_name, class_imbalance=False):
                                  .shuffle(buffer_size=1000).repeat())
                 class_datasets.append(class_dataset)
             # uniformly samples in the class_datasets
-            dataset = tf.data.experimental.sample_from_datasets(class_datasets) \
-                          .map(_parse_image, num_parallel_calls=AUTOTUNE) \
-                          .batch(params.BATCH_SIZE) \
-                          .prefetch(buffer_size=AUTOTUNE)  # make sure you always have one batch ready to serve
+            dataset = (tf.data.experimental.sample_from_datasets(class_datasets)
+                      .map(parse_image, num_parallel_calls=AUTOTUNE)
+                      .batch(params.BATCH_SIZE)
+                      .prefetch(buffer_size=AUTOTUNE))  # make sure you always have one batch ready to serve
             
         else:
             dataset = (tf.data.Dataset.list_files(params.patches_dir + '/train/*/*')
-                .repeat()
-                .shuffle(buffer_size=1000)  # whole dataset into the buffer ensures good shuffling
-                .map(_parse_image, num_parallel_calls=AUTOTUNE)
-                .batch(params.BATCH_SIZE)
-                .prefetch(buffer_size=AUTOTUNE)  # make sure you always have one batch ready to serve
-            )
+                      .repeat()
+                      .shuffle(buffer_size=1000)  # whole dataset into the buffer ensures good shuffling
+                      .map(parse_image, num_parallel_calls=AUTOTUNE)
+                      .batch(params.BATCH_SIZE)
+                      .prefetch(buffer_size=AUTOTUNE))
     elif dataset_name == 'val':
         dataset = (tf.data.Dataset.list_files(params.patches_dir + '/val/*/*')
-            .repeat()
-            .map(_parse_image, num_parallel_calls=AUTOTUNE)
-            .batch(params.BATCH_SIZE)
-            .prefetch(buffer_size=AUTOTUNE)  # make sure you always have one batch ready to serve
-        )
+                  .repeat()
+                  .map(parse_image, num_parallel_calls=AUTOTUNE)
+                  .batch(params.BATCH_SIZE)
+                  .prefetch(buffer_size=AUTOTUNE))
     else:
         dataset = (tf.data.Dataset.list_files(params.patches_dir + '/test/*/*')
-            .map(_parse_image, num_parallel_calls=AUTOTUNE)
-            .batch(params.BATCH_SIZE)
-            .prefetch(buffer_size=AUTOTUNE)  # make sure you always have one batch ready to serve
-        )
+                  .map(parse_image, num_parallel_calls=AUTOTUNE)
+                  .batch(params.BATCH_SIZE)
+                  .prefetch(buffer_size=AUTOTUNE))
 
     iterator = iter(dataset)
     return iterator
+
+
+def split_image(filename, post_processing=None, show_image=True):
+    label =  tf.strings.split(filename, os.sep)[-1]
+    image = io.imread(filename)
+    image = tf.image.convert_image_dtype(image, tf.float32)
+    if post_processing == 'jpeg':
+        image = tf.image.adjust_jpeg_quality(image, 70)
+    elif post_processing == 'blur':
+        image = tfa.image.gaussian_filter2d(image, 
+                                            filter_shape=[5, 5],
+                                            sigma=1.1)
+    elif post_processing == 'noise':
+        image = add_gaussian_noise(image)
+    elif post_processing == 'salt':
+        image = add_salt_pepper_noise(image.numpy())
+        
+    image = tf.clip_by_value(image, 0.0, 1.0)
+        
+    if show_image:
+        plt.figure()
+        plt.imshow(image)
+        plt.xticks([])
+        plt.yticks([])
+        plt.grid(False)
+        plt.xlabel(label.numpy().decode('utf-8'))
+
+    # divide into patches
+    v_patch_span = image.shape[0] // 256 * 256
+    h_patch_span = image.shape[1] // 256 * 256
+    patch_span = min([h_patch_span, v_patch_span, params.patch_span])
+    
+    center = np.divide(image.shape[:2], 2).astype(int)
+    start = np.subtract(center, patch_span/2).astype(int)
+    end = np.add(center, patch_span/2).astype(int)
+    sub_img = image[start[0]:end[0], start[1]:end[1]]
+    sub_img = np.asarray(sub_img)
+    patches = view_as_blocks(sub_img[:, :, 1], (256, 256))
+
+    images = patches.reshape((-1, 256, 256))
+    images = images[..., tf.newaxis]
+    return images, label

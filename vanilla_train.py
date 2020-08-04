@@ -8,13 +8,14 @@ import model_lib
 import utils
 import datetime
 from tqdm import trange
+
 keras = tf.keras
 gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 
 def build_and_train():
     # Set the logger
-    utils.set_logger('results/train.log')
+    utils.set_logger('results/vanilla.log')
 
     logging.info("Creating the datasets...")
     data_preparation.collect_split_extract(download_images=False, 
@@ -37,47 +38,33 @@ def build_and_train():
     train_iterator = data_preparation.build_dataset('train', class_imbalance=True)
     val_iterator = data_preparation.build_dataset('val')
 
-    model = model_lib.BNN(train_size)
+    model = model_lib.vanilla()
     loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
     optimizer = keras.optimizers.Adam(lr=params.HParams['init_learning_rate'])
 
     train_loss = keras.metrics.Mean(name='train_loss')
     train_acc = keras.metrics.CategoricalAccuracy(name='train_accuracy')
-    kl_loss = keras.metrics.Mean(name='kl_loss')
-    nll_loss = keras.metrics.Mean(name='nll_loss')
     val_loss = keras.metrics.Mean(name='test_loss')
     val_acc = keras.metrics.CategoricalAccuracy(name='test_accuracy')
 
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
-    val_log_dir = 'logs/gradient_tape/' + current_time + '/val'
+    train_log_dir = 'logs/vanilla/' + current_time + '/train'
+    val_log_dir = 'logs/vanilla/' + current_time + '/val'
     train_writer = tf.summary.create_file_writer(train_log_dir)
     val_writer = tf.summary.create_file_writer(val_log_dir)
-
 
     # save model to a checkpoint
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
         optimizer=keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
         net=model)
-    manager = tf.train.CheckpointManager(ckpt, './ckpts/BNN_num_examples_3', max_to_keep=3)
-    ckpt.restore(manager.latest_checkpoint)
-    if manager.latest_checkpoint:
-        logging.info("Restored from {}".format(manager.latest_checkpoint))
-    else:
-        logging.info("Initializing from scratch.")
-
+    manager = tf.train.CheckpointManager(ckpt, './ckpts/vanilla', max_to_keep=3)
 
     @tf.function
     def train_step(images, labels):
         with tf.GradientTape() as tape:
             logits = model(images, training=True)
-            nll =loss_object(labels, logits)
-            kl = sum(model.losses)
-            loss = nll + kl
-            kl_loss.update_state(kl)  
-            nll_loss.update_state(nll)
-
+            loss =loss_object(labels, logits)
         gradients = tape.gradient(loss, model.trainable_weights)
         optimizer.apply_gradients(zip(gradients, model.trainable_weights))
         train_loss.update_state(loss)  
@@ -87,9 +74,7 @@ def build_and_train():
     def val_step(images, label):
         with tf.GradientTape() as tape:
             logits = model(images)
-            nll =loss_object(labels, logits)
-            kl = sum(model.losses)
-            loss = nll + kl
+            loss =loss_object(labels, logits)
         val_loss.update_state(loss)
         val_acc.update_state(labels, logits)
 
@@ -101,8 +86,6 @@ def build_and_train():
         val_acc.reset_states()
         train_loss.reset_states()
         train_acc.reset_states()
-        kl_loss.reset_states()
-        nll_loss.reset_states()
 
         for step in trange(num_train_steps):
             images, labels = train_iterator.get_next()
@@ -118,8 +101,6 @@ def build_and_train():
             with train_writer.as_default():
                 tf.summary.scalar('loss', train_loss.result(), step=offset + step)
                 tf.summary.scalar('accuracy', train_acc.result(), step=offset + step)
-                tf.summary.scalar('kl_loss', kl_loss.result(), step=offset + step)
-                tf.summary.scalar('nll_loss', nll_loss.result(), step=offset + step)
                 train_writer.flush()
 
             if (step+1) % 150 == 0:

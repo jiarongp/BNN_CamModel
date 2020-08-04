@@ -1,5 +1,5 @@
-brands = ['Canon', 'Nikon', 'Olympus']
-models = ['Ixus70', 'D200', 'mju-1050SW']
+brands = ['Canon', 'Canon', 'Nikon', 'Nikon', 'Olympus', 'Sony', 'Sony']
+models = ['Ixus70', 'Ixus55', 'D200', 'D70', 'mju-1050SW', 'DSC-H50', 'DSC-T77']
 brand_models = ['_'.join([b, m]) for (b, m) in zip(brands, models)]
 
 unseen_brands = ['Agfa', 'Canon', 'Canon', 'Nikon', 'Sony']
@@ -8,6 +8,7 @@ unseen_brand_models = ['_'.join([b, m]) for (b, m) in zip(unseen_brands, unseen_
 
 dresden = 'data/dresden.csv'
 dresden_images_dir = 'data/dresden'
+unseen_patches_dir = 'data/unseen/'
 unseen_images_dir = 'data/unseen/test'
 
 IMG_HEIGHT = 256
@@ -20,7 +21,7 @@ BATCH_SIZE = 64
 NUM_EPOCHS = 100
 NUM_CLASSES = len(brand_models)
 num_monte_carlo = 30
-patience = 3
+patience = 5
 
 HParams = {'init_learning_rate':0.001,
            'init_prior_scale_mean':-1.9994,

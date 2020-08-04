@@ -14,3 +14,16 @@ image_paths = data_preparation.collect_dataset(data,
 for i in trange(len(image_paths)):
     data_preparation.patch(path=image_paths, dataset='test', parent_dir=params.unseen_patches_dir)
 print("... Done\n")
+
+# In Out Distinction with images from unseen camera model
+# collect odd data
+# logging.info("... Collecting images from unseen models\n")
+# data = pd.read_csv(params.dresden)
+# data = data[([m in params.unseen_models for m in data['model']])]
+# image_paths = data_preparation.collect_dataset(data, 
+#                                                params.dresden_images_dir,
+#                                                params.unseen_brand_models,
+#                                                download=False)
+# for i in trange(len(image_paths)):
+#     data_preparation.patch(path=image_paths, dataset='test', parent_dir=params.unseen_patches_dir)
+# logging.info("... Done\n")

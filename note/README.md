@@ -382,7 +382,7 @@ Precision describes how good the model is at predicting the positive class:
 Recall is the same as **Sensitivity**:
 `Recall = True Positives / (True Positives + False Negatives)`
 
-Reviewing both precision and recall is useful in cases where there is an imbalance in the observations between the two classes. There are many examples of no event (class 0) and only a few examples of an event (class 1). If we only interest in the ability of the model predicting the minority class (class 1), this can help us to avoid the high true negatives affect the evaluation (no true positives in the formula, right?).
+Reviewing both precision and recall is useful in cases where there is an imbalance in the observations between the two classes. There are many examples of no event (class 0) and only a few examples of an event (class 1). If we only interest in the ability of the model predicting the minority class (class 1), this can help us to avoid the high true negatives affect the evaluation (no true negatives in the formula, right?).
 
 A precision-recall curve is a plot of the precision (y-axis) and the recall (x-axis) for different thresholds, much like the ROC curves.
 > While the baseline is fixed with ROC, the baseline of [precision-recall curve] is determined by the ratio of positives (P) and negatives (N) as y = P / (P + N). For instance, we have y = 0.5 for a balanced class distribution …
