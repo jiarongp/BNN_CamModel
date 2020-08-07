@@ -18,14 +18,19 @@ def build_and_train():
     utils.set_logger('results/vanilla.log')
 
     logging.info("Creating the datasets...")
-    data_preparation.collect_split_extract(download_images=False, 
-                                           parent_dir=params.patches_dir)
+    dataset = 'dresden'
+    patch_dir = (params.dresden_patches 
+                if dataset == 'dresden' 
+                else params.RAISE_patches)
+    data_preparation.collect_split_extract(download_images=False,
+                                           dataset=dataset,
+                                           parent_dir=patch_dir)
 
     train_size = 0
     val_size = 0
     for m in params.brand_models:
-        train_size += len(os.listdir(os.path.join(params.patches_dir, 'train', m)))
-        val_size += len(os.listdir(os.path.join(params.patches_dir, 'val', m)))
+        train_size += len(os.listdir(os.path.join(patch_dir, 'train', m)))
+        val_size += len(os.listdir(os.path.join(patch_dir, 'val', m)))
     num_train_steps = (train_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE
     num_val_steps = (val_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE
 
@@ -35,8 +40,8 @@ def build_and_train():
     best_loss = 10000
     stop_count = 0
 
-    train_iterator = data_preparation.build_dataset('train', class_imbalance=True)
-    val_iterator = data_preparation.build_dataset('val')
+    train_iterator = data_preparation.build_dataset('train', dataset, class_imbalance=True)
+    val_iterator = data_preparation.build_dataset('val', dataset)
 
     model = model_lib.vanilla()
     loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)

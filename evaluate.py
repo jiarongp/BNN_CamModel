@@ -38,7 +38,7 @@ def evaluate():
         optimizer=keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
         net=model)
     manager = tf.train.CheckpointManager(ckpt, 
-                                         './ckpts/BNN_num_examples_2', 
+                                         './ckpts/BNN_num_examples_3', 
                                          max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
     logging.info("Restored from {}".format(manager.latest_checkpoint))

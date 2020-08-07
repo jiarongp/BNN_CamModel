@@ -305,7 +305,7 @@ About aleatoric and epistemic uncertainty
   - histogram of variance
   - ROC curve
 
-
+Nikon_D7000_r0bf7f938t.TIF is corrupted.
 
 ## Note
 

@@ -81,7 +81,7 @@ def plot_heldout_prediction(images, labels, probs, fname, n=5, title=''):
     n: Python `int` number of datapoints to vizualize.
     title: Python `str` title for the plot.
     """
-    fig = figure.Figure(figsize=(13, 3*n))
+    fig = figure.Figure(figsize=(26, 3*n))
     canvas = backend_agg.FigureCanvasAgg(fig)
     color_list = ['b', 'C1', 'g']
     d2c = dict(zip(params.brand_models, color_list))
@@ -100,6 +100,7 @@ def plot_heldout_prediction(images, labels, probs, fname, n=5, title=''):
             ax.set_ylim([0, 1])
             ax.set_xticklabels(params.brand_models)
         ax.set_title('posterior samples')
+        ax.set_xticklabels(params.brand_models, fontdict={'fontsize': 8})
     
         ax = fig.add_subplot(n, 3, 3*i + 3)
         # plot the prediction mean for every test number
@@ -271,7 +272,7 @@ def area_under_curves(safe, risky, inverse=False):
         labels[:safe.shape[0]] += 1
     examples = np.squeeze(np.vstack((safe, risky)))
     aupr = round(100 * sk.average_precision_score(labels, examples), 2)
-    auroc =  round(100 * sk.roc_auc_score(labels, examples), 2)
+    auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
     return aupr, auroc
 
 def roc_pr_curves(safe, risky, inverse=False):
@@ -280,7 +281,8 @@ def roc_pr_curves(safe, risky, inverse=False):
         labels[safe.shape[0]:] += 1
     else:
         labels[:safe.shape[0]] += 1
-    examples = np.squeeze(np.vstack((safe, risky)))
+    # examples = np.squeeze(np.vstack((safe, risky)))
+    examples = np.concatenate((safe, risky))
     
     auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
     fpr, tpr, _ = sk.roc_curve(labels, examples)
@@ -288,3 +290,17 @@ def roc_pr_curves(safe, risky, inverse=False):
     precision, recall, _ = sk.precision_recall_curve(labels, examples)
 
     return fpr, tpr, precision, recall, aupr, auroc
+
+def image_uncertainty(mc_s_prob):
+    # using entropy based method calculate uncertainty for each image
+    mean_probs = np.mean(mc_s_prob, axis=0)
+    log_prob = -np.sum((mean_probs * np.log(mean_probs + np.finfo(float).eps)), axis=1)
+
+    epistemic_all = []
+    for i in range(mc_s_prob.shape[1]):
+        # output epistemic uncertainty for each image -> [7, 7] matrix
+        aleatoric, epistemic = decompose_uncertainties(mc_s_prob[:,i,:])
+        # summarize the matrix 
+        epistemic_all.append(sum(np.diag(epistemic)))
+    epistemic_all = np.asarray(epistemic_all)
+    return log_prob, epistemic_all

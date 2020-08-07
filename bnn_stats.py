@@ -7,14 +7,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 import utils
 from tqdm import trange
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import figure
+from matplotlib.backends import backend_agg
 gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
+AUTOTUNE = tf.data.experimental.AUTOTUNE
 
+dataset = 'dresden'
+patch_dir = (params.dresden_patches 
+             if dataset == 'dresden' 
+             else params.RAISE_patches)
 
 # import BNN model
 train_size = 0
 for m in params.brand_models:
-    train_size += len(os.listdir(os.path.join(params.patches_dir, 'train', m)))
+    train_size += len(os.listdir(os.path.join(patch_dir, 'train', m)))
 num_test_steps = (train_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE 
 
 model = model_lib.BNN(train_size)
@@ -22,40 +31,73 @@ ckpt = tf.train.Checkpoint(
     step=tf.Variable(1), 
     optimizer=tf.keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
     net=model)
-manager = tf.train.CheckpointManager(ckpt, './ckpts/BNN_num_examples_2', max_to_keep=3)
+manager = tf.train.CheckpointManager(ckpt, './ckpts/BNN_num_examples_3', max_to_keep=3)
 ckpt.restore(manager.latest_checkpoint)
 
-test_iterator = dp.build_dataset('test')
+in_dataset = (tf.data.Dataset.list_files(patch_dir + '/test/*/*')
+              .repeat()
+              .shuffle(buffer_size=1000)
+              .map(dp.parse_image, num_parallel_calls=AUTOTUNE)
+              .batch(32)
+              .prefetch(buffer_size=AUTOTUNE))
+unseen_dataset = (tf.data.Dataset.list_files(params.unseen_images_dir+ '/*/*')
+                  .repeat()
+                  .map(dp.parse_image, num_parallel_calls=AUTOTUNE)
+                  .batch(32)
+                  .prefetch(buffer_size=AUTOTUNE))
+in_iter = iter(in_dataset)
+unseen_iter = iter(unseen_dataset)
 
-mc_s_prob = []
+fname = 'results/bnn_stats.log'
+
+mc_s_prob_in = []
+mc_s_prob_out = []
 for i in trange(params.num_monte_carlo):
-    softmax_prob_all, softmax_prob_right, softmax_prob_wrong, accuracy = [], [], [], []
-    for step in range(num_test_steps):
-        images, onehot_labels = test_iterator.get_next()
-        logits = model(images)
-        softmax_all = tf.nn.softmax(logits)
-        labels = np.argmax(onehot_labels, axis=1)
-        
-        right_mask = np.equal(np.argmax(softmax_all, axis=1), labels)
-        wrong_mask = np.not_equal(np.argmax(softmax_all, axis=1), labels)
-        right_all, wrong_all = softmax_all[right_mask], softmax_all[wrong_mask]
+    softmax_prob_in, softmax_prob_out = [], []
+    for step in range(50):
+        in_images, _ = in_iter.get_next()
+        out_images, _ = unseen_iter.get_next()
+        logits_in = model(in_images)
+        logits_out = model(out_images)
+        s_prob_in = tf.nn.softmax(logits_in)
+        s_prob_out = tf.nn.softmax(logits_out)
 
-        s_prob_all = np.amax(softmax_all, axis=1, keepdims=True)
-        s_prob_right = np.amax(right_all, axis=1, keepdims=True)
-        s_prob_wrong = np.amax(wrong_all, axis=1, keepdims=True)
+        softmax_prob_in.extend(s_prob_in)
+        softmax_prob_out.extend(s_prob_out)
+    mc_s_prob_in.append(softmax_prob_in)
+    mc_s_prob_out.append(softmax_prob_out)
 
-        correct_cases = np.equal(np.argmax(softmax_all, axis=1), labels)
-        acc = 100 * np.mean(np.float32(correct_cases))
+mc_s_prob_in = np.asarray(mc_s_prob_in)
+mc_s_prob_out = np.asarray(mc_s_prob_in)
 
-        softmax_prob_all.extend(s_prob_all)
-        softmax_prob_right.extend(s_prob_right)
-        softmax_prob_wrong.extend(s_prob_wrong)
-        accuracy.append(acc)
-    
-    mc_s_prob.append(softmax_all) 
+in_log_prob, in_epistemic_all = utils.image_uncertainty(mc_s_prob_in)
+out_log_prob, out_epistemic_all = utils.image_uncertainty(mc_s_prob_out)
 
-    accuracy = np.mean(accuracy)
-    err = 100 - accuracy
+log_prob_unseen = [in_log_prob, out_log_prob]
+epistemic_unseen = [in_log_prob, out_log_prob]
 
-mc_s_prob = np.asarray(mc_s_prob)
-std_all = np.std(mc_s_prob, axis=1)
+targets = [('log_prob, unseen models', log_prob_unseen), 
+            ('epistemic, unseen models', epistemic_unseen)]
+
+# Plotting ROC and PR curves 
+fig = figure.Figure(figsize=(10, 5))
+canvas = backend_agg.FigureCanvasAgg(fig)
+fz = 15
+for i, (plotname, (safe, risky)) in enumerate(targets):
+    ax = fig.add_subplot(1, 2, i+1)
+    fpr, tpr, precision, recall, aupr, auroc = utils.roc_pr_curves(safe, risky)
+    ax.plot(fpr, tpr, '-',
+            label='Uncertainty, AUROC:{}'.format(auroc),
+            lw=4)
+    ax.plot([0, 1], 'k-', lw=3, label='Base rate(0.5)')
+    ax.legend(fontsize=fz)
+    ax.set_title(plotname, fontsize=fz)
+    ax.set_xlabel("FPR", fontsize=fz)
+    ax.set_ylabel("TPR", fontsize=fz)
+    ax.grid(True)
+
+fig.suptitle('ROC curve of uncertainty binary detector (correct / in-distribution as positive)', y=1.07, fontsize=30)
+fig.tight_layout()
+canvas.print_figure('results/bnn_stats.png', format='png')
+print('saved {}'.format('results/bnn_stats.png'))
+

@@ -14,7 +14,7 @@ from skimage import io
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
-def collect_dataset(data, images_dir, brand_models, download=False):
+def collect_dataset(data, images_dir, brand_models, dataset, download=False):
     """Download data from the input csv to specific directory
     Args:
         data: a csv file storing the dataset with filename, model, brand and etc.
@@ -30,14 +30,20 @@ def collect_dataset(data, images_dir, brand_models, download=False):
     for path in dirs:
         if not os.path.exists(path):
             os.makedirs(path)
-
+    data = (data[['filename', 'brand', 'model', 'url']] if dataset=='dresden' 
+            else data[['File', 'TIFF', 'Device']])
     for i in range((data.shape[0])): 
         csv_rows.append(list(data.iloc[i, :]))
 
     for csv_row in tqdm(csv_rows, position=0, leave=True):
-        filename, brand, model = csv_row[0:3]
-        url = csv_row[-1]
-        brand_model = '_'.join([brand, model])
+        if dataset == 'dresden':
+            filename, brand, model = csv_row[0:3]
+            url = csv_row[-1]
+            brand_model = '_'.join([brand, model])
+        else:
+            filename, url, brand_model = csv_row
+            brand_model = '_'.join(brand_model.split(' '))
+            filename = '{}_{}.{}'.format(brand_model, filename, 'TIF')
         image_path = os.path.join(images_dir, brand_model, filename)
 
         if download:
@@ -127,28 +133,28 @@ def _patchify(img_path, patch_span=params.patch_span):
     return patches
 
 
-def patch(path, dataset, parent_dir):
+def patch(path, data_id, parent_dir, dataset):
     """call the extract function to extract patches from full-sized image
     Args:
         path: paths for images needed to be split into patches
-        dataset: one of ['train', 'val', 'test']
+        data_id: one of ['train', 'val', 'test']
     """
     imgs_list = []
     for img_path in path:
-        imgs_list += [{'dataset':dataset,
+        imgs_list += [{'data_id':data_id,
                        'img_path':img_path,
                        'parent_dir':parent_dir}]
     # num_processes = 4
     # pool = Pool(processes=num_processes)
     # pool.map(_extract, imgs_list)
     for img in imgs_list:
-        _extract(img)
+        _extract(img, dataset)
 
 
-def _extract(args):
+def _extract(args, dataset):
     """extract patches from full-sized image
     Args:
-        dataset: dataset the image belongs to, 'train', 'val' or 'test'
+        data_id: dataset the image belongs to, 'train', 'val' or 'test'
         img_path: full paths of the source images
     Return:
         output_rel_paths: the paths of extracted patches. For example:
@@ -157,10 +163,14 @@ def _extract(args):
     # 'train/Agfa_DC-504/Agfa_DC-504_0_1_00.png' for example,
     # last part is the patch idex.
     # Use PNG for losslessly storing images
-    output_rel_paths = [os.path.join(args['dataset'],
+
+    output_rel_paths = [os.path.join(args['data_id'],
                         os.path.split(os.path.dirname(args['img_path']))[-1],
-                        os.path.splitext(os.path.split(args['img_path'])[-1])[0]+'_'+'{:02}'.format(patch_idx) + '.png')\
+                        os.path.splitext(os.path.split(args['img_path'])[-1])[0]+'_'+'{:02}'
+                        .format(patch_idx)
+                        + ('.png' if dataset == 'dresden' else '.TIF'))
                         for patch_idx in range(params.patch_num)]
+    
     read_img = False
     parent_dir = args['parent_dir']
     for out_path in output_rel_paths:
@@ -183,24 +193,29 @@ def _extract(args):
     # return output_rel_paths
 
 
-def collect_split_extract(parent_dir, download_images=False):
+def collect_split_extract(parent_dir, dataset='dresden', download_images=False):
     # collect data if not downloaded
-    data = pd.read_csv(params.dresden)
-    data = data[([m in params.models for m in data['model']])]
+    ds_csv, ds_dir = ((params.dresden, params.dresden_images_dir) 
+                       if (dataset=='dresden') 
+                       else (params.RAISE, params.RAISE_images_dir))
+    data = pd.read_csv(ds_csv)
+    if dataset=='dresden':
+        data = data[([m in params.models for m in data['model']])]
     image_paths = collect_dataset(data, 
-                                  params.dresden_images_dir,
+                                  ds_dir,
                                   params.brand_models,
+                                  dataset,
                                   download=download_images)
 
     # split dataset in train, val and test
     split_ds = split_dataset(image_paths, 
-                              brand_models=params.brand_models)
+                             brand_models=params.brand_models)
     # extract patches from full-sized images
     for i in range(len(params.brand_models)):
         logging.info("... Extracting patches from {} images".format(params.brand_models[i]))
-        patch(path=split_ds[i][0], dataset='train', parent_dir=parent_dir)
-        patch(path=split_ds[i][1], dataset='val', parent_dir=parent_dir)
-        patch(path=split_ds[i][2], dataset='test', parent_dir=parent_dir)
+        patch(path=split_ds[i][0], data_id='train', parent_dir=parent_dir, dataset=dataset)
+        patch(path=split_ds[i][1], data_id='val', parent_dir=parent_dir, dataset=dataset)
+        patch(path=split_ds[i][2], data_id='test', parent_dir=parent_dir, dataset=dataset)
         logging.info("... Done\n")
 
 
@@ -248,17 +263,20 @@ def post_process(filename, post_processing=None):
     return images, labels
 
 
-def build_dataset(dataset_name, class_imbalance=False):
+def build_dataset(data_id, dataset, class_imbalance=False):
     # zip image and label
     # The Dataset.map(f) transformation produces a new dataset by applying a 
     # given function f to each element of the input dataset. 
-    if dataset_name == 'train':
+    patch_dir = (params.dresden_patches 
+                 if dataset == 'dresden' 
+                 else params.RAISE_patches)
+    if data_id == 'train':
         # use oversampling to counteract the class imbalance
         # https://www.tensorflow.org/tutorials/structured_data/imbalanced_data#oversampling
         if class_imbalance:
             class_datasets = []
             for m in params.brand_models:
-                class_dataset = (tf.data.Dataset.list_files(params.patches_dir + '/train/' + m + '/*') \
+                class_dataset = (tf.data.Dataset.list_files(patch_dir + '/train/' + m + '/*') \
                                  .shuffle(buffer_size=1000).repeat())
                 class_datasets.append(class_dataset)
             # uniformly samples in the class_datasets
@@ -268,20 +286,20 @@ def build_dataset(dataset_name, class_imbalance=False):
                       .prefetch(buffer_size=AUTOTUNE))  # make sure you always have one batch ready to serve
             
         else:
-            dataset = (tf.data.Dataset.list_files(params.patches_dir + '/train/*/*')
+            dataset = (tf.data.Dataset.list_files(patch_dir + '/train/*/*')
                       .repeat()
                       .shuffle(buffer_size=1000)  # whole dataset into the buffer ensures good shuffling
                       .map(parse_image, num_parallel_calls=AUTOTUNE)
                       .batch(params.BATCH_SIZE)
                       .prefetch(buffer_size=AUTOTUNE))
-    elif dataset_name == 'val':
-        dataset = (tf.data.Dataset.list_files(params.patches_dir + '/val/*/*')
+    elif data_id == 'val':
+        dataset = (tf.data.Dataset.list_files(patch_dir + '/val/*/*')
                   .repeat()
                   .map(parse_image, num_parallel_calls=AUTOTUNE)
                   .batch(params.BATCH_SIZE)
                   .prefetch(buffer_size=AUTOTUNE))
     else:
-        dataset = (tf.data.Dataset.list_files(params.patches_dir + '/test/*/*')
+        dataset = (tf.data.Dataset.list_files(patch_dir + '/test/*/*')
                   .map(parse_image, num_parallel_calls=AUTOTUNE)
                   .batch(params.BATCH_SIZE)
                   .prefetch(buffer_size=AUTOTUNE))
