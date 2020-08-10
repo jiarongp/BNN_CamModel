@@ -39,14 +39,10 @@ else:
     ckpt.restore(manager.latest_checkpoint)
 
 
-dataset = 'dresden'
-patch_dir = (params.dresden_patches 
-            if dataset == 'dresden' 
-            else params.RAISE_patches)
 # build test iterator
 test_size = 0
 for m in params.brand_models:
-    test_size += len(os.listdir(os.path.join(patch_dir, 'test', m)))
+    test_size += len(os.listdir(os.path.join(params.patch_dir, 'test', m)))
 num_test_steps = (test_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE
 test_iterator = dp.build_dataset('test', 'dresden')
 
@@ -56,7 +52,7 @@ softmax_prob_right, softmax_prob_wrong = utils.right_wrong_distinction(
 
 # build in & out of distribution dataset iterator
 batch_size = np.int64(params.BATCH_SIZE / 2)
-in_dataset = (tf.data.Dataset.list_files(patch_dir + '/test/*/*')
+in_dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
               .repeat()
               .shuffle(buffer_size=1000)
               .map(dp.parse_image, num_parallel_calls=AUTOTUNE)
@@ -66,17 +62,17 @@ unseen_dataset = (tf.data.Dataset.list_files(params.unseen_images_dir+ '/*/*')
                   .map(dp.parse_image, num_parallel_calls=AUTOTUNE)
                   .batch(batch_size)
                   .prefetch(buffer_size=AUTOTUNE))
-jpeg_dataset = (tf.data.Dataset.list_files(patch_dir+ 'test/*/*')
+jpeg_dataset = (tf.data.Dataset.list_files(params.patch_dir+ '/test/*/*')
                 .map(functools.partial(dp.parse_image, post_processing='jpeg'), 
                      num_parallel_calls=AUTOTUNE)
                 .batch(batch_size)
                 .prefetch(buffer_size=AUTOTUNE))
-blur_dataset = (tf.data.Dataset.list_files(patch_dir+ 'test/*/*')
+blur_dataset = (tf.data.Dataset.list_files(params.patch_dir+ '/test/*/*')
                 .map(functools.partial(dp.parse_image, post_processing='blur'), 
                      num_parallel_calls=AUTOTUNE)
                 .batch(batch_size)
                 .prefetch(buffer_size=AUTOTUNE))
-noise_dataset = (tf.data.Dataset.list_files(patch_dir+ 'test/*/*')
+noise_dataset = (tf.data.Dataset.list_files(params.patch_dir+ '/test/*/*')
                 .map(functools.partial(dp.parse_image, post_processing='noise'), 
                      num_parallel_calls=AUTOTUNE)
                 .batch(batch_size)

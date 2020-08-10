@@ -15,15 +15,10 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
-dataset = 'dresden'
-patch_dir = (params.dresden_patches 
-             if dataset == 'dresden' 
-             else params.RAISE_patches)
-
 # import BNN model
 train_size = 0
 for m in params.brand_models:
-    train_size += len(os.listdir(os.path.join(patch_dir, 'train', m)))
+    train_size += len(os.listdir(os.path.join(params.patch_dir, 'train', m)))
 num_test_steps = (train_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE 
 
 model = model_lib.BNN(train_size)
@@ -31,10 +26,10 @@ ckpt = tf.train.Checkpoint(
     step=tf.Variable(1), 
     optimizer=tf.keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
     net=model)
-manager = tf.train.CheckpointManager(ckpt, './ckpts/BNN_num_examples_3', max_to_keep=3)
+manager = tf.train.CheckpointManager(ckpt, './ckpts/BNN_num_examples_4', max_to_keep=3)
 ckpt.restore(manager.latest_checkpoint)
 
-in_dataset = (tf.data.Dataset.list_files(patch_dir + '/test/*/*')
+in_dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
               .repeat()
               .shuffle(buffer_size=1000)
               .map(dp.parse_image, num_parallel_calls=AUTOTUNE)

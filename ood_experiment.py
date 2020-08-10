@@ -12,7 +12,7 @@ image_paths = data_preparation.collect_dataset(data,
                                                download=False)
 
 for i in trange(len(image_paths)):
-    data_preparation.patch(path=image_paths, dataset='test', parent_dir=params.unseen_patches_dir)
+    data_preparation.patch(path=image_paths, dataset='test', parent_dir=params.unseen_dir)
 print("... Done\n")
 
 # In Out Distinction with images from unseen camera model

@@ -14,7 +14,7 @@ def constrain_conv(layer, pre_weights):
     weights = layer.get_weights()[0]
     bias = layer.get_weights()[1]
     # check if it is converged
-    if pre_weights is None or np.all(pre_weights != weights):
+    if pre_weights is None or np.any(pre_weights != weights):
         # Constrain the first layer
         # Scale by 10k to avoid numerical issues while normalizing
         weights = weights*10000
@@ -35,7 +35,7 @@ class BNN(keras.Model):
                 #  examples_per_epoch):
         super(BNN, self).__init__()
         divergence_fn = (lambda q, p, _: tfd.kl_divergence(q, p) / 
-                         tf.cast(kl_weight, dtype=tf.float32))
+                         tf.cast(2 * kl_weight, dtype=tf.float32))
 
         self.constrained_weights = None
         # no non-linearity after constrained layer

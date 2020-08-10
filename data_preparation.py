@@ -14,7 +14,7 @@ from skimage import io
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
-def collect_dataset(data, images_dir, brand_models, dataset, download=False):
+def collect_dataset(data, images_dir, brand_models, download=False):
     """Download data from the input csv to specific directory
     Args:
         data: a csv file storing the dataset with filename, model, brand and etc.
@@ -30,13 +30,14 @@ def collect_dataset(data, images_dir, brand_models, dataset, download=False):
     for path in dirs:
         if not os.path.exists(path):
             os.makedirs(path)
-    data = (data[['filename', 'brand', 'model', 'url']] if dataset=='dresden' 
+    data = (data[['filename', 'brand', 'model', 'url']] 
+            if params.database == 'dresden' 
             else data[['File', 'TIFF', 'Device']])
     for i in range((data.shape[0])): 
         csv_rows.append(list(data.iloc[i, :]))
 
     for csv_row in tqdm(csv_rows, position=0, leave=True):
-        if dataset == 'dresden':
+        if params.database == 'dresden':
             filename, brand, model = csv_row[0:3]
             url = csv_row[-1]
             brand_model = '_'.join([brand, model])
@@ -88,26 +89,48 @@ def split_dataset(img_list, brand_models, seed=42):
         split_ds: a list has shape [# of models, [# of train, # of val, # of test]], contains the 
                   full relative paths of images.
     """
-    num_test = int(len(img_list) * 0.15)
-    num_val = num_test
-    num_train = len(img_list) - num_test - num_val
-
-    np.random.seed(seed)
-    np.random.shuffle(img_list)
-
-    train_list = img_list[0:num_train]
-    val_list = img_list[num_train:(num_train + num_val)]
-    test_list = img_list[(num_train + num_val):]
-    # print out the split information
     split_ds = []
-    for model in brand_models:
-        train = fnmatch.filter(train_list, '*' + model + '*')
-        logging.info("{} in training set: {}.".format(model, len(train)))
-        val = fnmatch.filter(val_list, '*' + model + '*')
-        logging.info("{} in validation set: {}.".format(model, len(val)))
-        test = fnmatch.filter(test_list, '*' + model + '*')
-        logging.info("{} in test set: {}.\n".format(model, len(test)))
-        split_ds.append([train, val, test])
+    if params.even_database:
+        np.random.seed(42)
+        model_images, num_images = [], []
+        for model in params.brand_models:
+            images = fnmatch.filter(img_list, '*' + model + '*')
+            model_images.append(images)
+            num_images.append(len(images))
+            
+        num_ds = min(num_images)
+        num_val = int(0.1 * num_ds)
+        num_train = num_ds - 2 * num_val
+
+        for model, images in zip(params.brand_models, model_images):
+            np.random.shuffle(images)
+            train = images[0:num_train]
+            logging.info("{} in training set: {}.".format(model, len(train)))
+            val = images[num_train:(num_train + num_val)]
+            logging.info("{} in validation set: {}.".format(model, len(val)))
+            test = images[(num_train + num_val):(num_train + 2*num_val)]
+            logging.info("{} in test set: {}.\n".format(model, len(test)))
+            split_ds.append([train, val, test])
+    else:
+        # num_test equals to num_val
+        num_val = int(len(img_list) * 0.15)
+        num_train = len(img_list) - num_test - num_val
+
+        np.random.seed(seed)
+        np.random.shuffle(img_list)
+
+        train_list = img_list[0:num_train]
+        val_list = img_list[num_train:(num_train + num_val)]
+        test_list = img_list[(num_train + num_val):]
+        # print out the split information
+        for model in brand_models:
+            train = fnmatch.filter(train_list, '*' + model + '*')
+            logging.info("{} in training set: {}.".format(model, len(train)))
+            val = fnmatch.filter(val_list, '*' + model + '*')
+            logging.info("{} in validation set: {}.".format(model, len(val)))
+            test = fnmatch.filter(test_list, '*' + model + '*')
+            logging.info("{} in test set: {}.\n".format(model, len(test)))
+            split_ds.append([train, val, test])
     return split_ds
 
 
@@ -133,7 +156,7 @@ def _patchify(img_path, patch_span=params.patch_span):
     return patches
 
 
-def patch(path, data_id, parent_dir, dataset):
+def patch(path, data_id, parent_dir):
     """call the extract function to extract patches from full-sized image
     Args:
         path: paths for images needed to be split into patches
@@ -148,10 +171,10 @@ def patch(path, data_id, parent_dir, dataset):
     # pool = Pool(processes=num_processes)
     # pool.map(_extract, imgs_list)
     for img in imgs_list:
-        _extract(img, dataset)
+        _extract(img)
 
 
-def _extract(args, dataset):
+def _extract(args):
     """extract patches from full-sized image
     Args:
         data_id: dataset the image belongs to, 'train', 'val' or 'test'
@@ -168,7 +191,8 @@ def _extract(args, dataset):
                         os.path.split(os.path.dirname(args['img_path']))[-1],
                         os.path.splitext(os.path.split(args['img_path'])[-1])[0]+'_'+'{:02}'
                         .format(patch_idx)
-                        + ('.png' if dataset == 'dresden' else '.TIF'))
+                        + ('.png' if params.database == 'dresden' 
+                           else '.TIF'))
                         for patch_idx in range(params.patch_num)]
     
     read_img = False
@@ -193,18 +217,14 @@ def _extract(args, dataset):
     # return output_rel_paths
 
 
-def collect_split_extract(parent_dir, dataset='dresden', download_images=False):
+def collect_split_extract(parent_dir, download_images=False):
     # collect data if not downloaded
-    ds_csv, ds_dir = ((params.dresden, params.dresden_images_dir) 
-                       if (dataset=='dresden') 
-                       else (params.RAISE, params.RAISE_images_dir))
-    data = pd.read_csv(ds_csv)
-    if dataset=='dresden':
+    data = pd.read_csv(params.ds_csv)
+    if params.database=='dresden':
         data = data[([m in params.models for m in data['model']])]
     image_paths = collect_dataset(data, 
-                                  ds_dir,
+                                  params.ds_image_dir,
                                   params.brand_models,
-                                  dataset,
                                   download=download_images)
 
     # split dataset in train, val and test
@@ -213,9 +233,9 @@ def collect_split_extract(parent_dir, dataset='dresden', download_images=False):
     # extract patches from full-sized images
     for i in range(len(params.brand_models)):
         logging.info("... Extracting patches from {} images".format(params.brand_models[i]))
-        patch(path=split_ds[i][0], data_id='train', parent_dir=parent_dir, dataset=dataset)
-        patch(path=split_ds[i][1], data_id='val', parent_dir=parent_dir, dataset=dataset)
-        patch(path=split_ds[i][2], data_id='test', parent_dir=parent_dir, dataset=dataset)
+        patch(path=split_ds[i][0], data_id='train', parent_dir=parent_dir)
+        patch(path=split_ds[i][1], data_id='val', parent_dir=parent_dir)
+        patch(path=split_ds[i][2], data_id='test', parent_dir=parent_dir)
         logging.info("... Done\n")
 
 
@@ -225,8 +245,13 @@ def parse_image(img_path, post_processing=None):
     onehot_label = tf.cast(matches, tf.float32)
 
     # load the raw data from the file as a string
-    image = tf.io.read_file(img_path)
-    image = tf.image.decode_jpeg(image, channels=1)
+    if params.database == 'RAISE':
+        image = io.imread(img_path.numpy().decode())
+    else:
+        image = tf.io.read_file(img_path)
+        image = tf.image.decode_png(image)
+
+
     # image covert to tf.float32 and /255.
     image = tf.image.convert_image_dtype(image, tf.float32)
 
@@ -248,35 +273,17 @@ def parse_image(img_path, post_processing=None):
     return image, onehot_label
 
 
-def post_process(filename, post_processing=None):
-    labels =  tf.strings.split(filename, os.sep)[-1]
-    images = _patchify(filename).reshape((-1, 256, 256))
-    images = tf.image.convert_image_dtype(images, tf.float32)
-    images = images[..., tf.newaxis]
-    images = tf.image.random_flip_left_right(images)
-    if 'blur' in 'post_processing':
-        images = tf.stack([tfa.image.gaussian_filter2d(imgs[i]) for i in range(25)])
-    if 'jpeg' in post_processing:
-        images = tf.stack([tf.image.adjust_jpeg_quality(images[i], 70) for i in range(25)])
-    #Make sure the image is still in [0, 1]
-    images = tf.clip_by_value(images, 0.0, 1.0)
-    return images, labels
-
-
-def build_dataset(data_id, dataset, class_imbalance=False):
+def build_dataset(data_id, class_imbalance=False):
     # zip image and label
     # The Dataset.map(f) transformation produces a new dataset by applying a 
     # given function f to each element of the input dataset. 
-    patch_dir = (params.dresden_patches 
-                 if dataset == 'dresden' 
-                 else params.RAISE_patches)
     if data_id == 'train':
         # use oversampling to counteract the class imbalance
         # https://www.tensorflow.org/tutorials/structured_data/imbalanced_data#oversampling
         if class_imbalance:
             class_datasets = []
             for m in params.brand_models:
-                class_dataset = (tf.data.Dataset.list_files(patch_dir + '/train/' + m + '/*') \
+                class_dataset = (tf.data.Dataset.list_files(params.patch_dir + '/train/' + m + '/*') \
                                  .shuffle(buffer_size=1000).repeat())
                 class_datasets.append(class_dataset)
             # uniformly samples in the class_datasets
@@ -286,20 +293,20 @@ def build_dataset(data_id, dataset, class_imbalance=False):
                       .prefetch(buffer_size=AUTOTUNE))  # make sure you always have one batch ready to serve
             
         else:
-            dataset = (tf.data.Dataset.list_files(patch_dir + '/train/*/*')
+            dataset = (tf.data.Dataset.list_files(params.patch_dir + '/train/*/*')
                       .repeat()
                       .shuffle(buffer_size=1000)  # whole dataset into the buffer ensures good shuffling
                       .map(parse_image, num_parallel_calls=AUTOTUNE)
                       .batch(params.BATCH_SIZE)
                       .prefetch(buffer_size=AUTOTUNE))
     elif data_id == 'val':
-        dataset = (tf.data.Dataset.list_files(patch_dir + '/val/*/*')
+        dataset = (tf.data.Dataset.list_files(params.patch_dir + '/val/*/*')
                   .repeat()
                   .map(parse_image, num_parallel_calls=AUTOTUNE)
                   .batch(params.BATCH_SIZE)
                   .prefetch(buffer_size=AUTOTUNE))
     else:
-        dataset = (tf.data.Dataset.list_files(patch_dir + '/test/*/*')
+        dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
                   .map(parse_image, num_parallel_calls=AUTOTUNE)
                   .batch(params.BATCH_SIZE)
                   .prefetch(buffer_size=AUTOTUNE))
@@ -334,6 +341,7 @@ def split_image(filename, post_processing=None, show_image=True):
         plt.xlabel(label.numpy().decode('utf-8'))
 
     # divide into patches
+    # adaptive patchify
     v_patch_span = image.shape[0] // 256 * 256
     h_patch_span = image.shape[1] // 256 * 256
     patch_span = min([h_patch_span, v_patch_span, params.patch_span])

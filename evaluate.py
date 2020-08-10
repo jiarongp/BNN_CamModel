@@ -1,7 +1,7 @@
 import logging
 logging.getLogger('tensorflow').disabled = True
 import utils
-import data_preparation
+import data_preparation as dp
 import os
 import params
 import numpy as np
@@ -13,45 +13,53 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 
 
-def evaluate():
-    utils.set_logger('results/evaluate.log')
+def bnn_evaluate(log):
+    utils.set_logger(log)
     num_monte_carlo = 30
     test_size = 0
     train_size = 0
     for m in params.brand_models:
-        train_size += len(os.listdir(os.path.join(params.patches_dir, 'train', m)))
-        test_size += len(os.listdir(os.path.join(params.patches_dir, 'test', m)))
+        train_size += len(os.listdir(os.path.join(params.patch_dir, 'train', m)))
+        test_size += len(os.listdir(os.path.join(params.patch_dir, 'test', m)))
     num_test_steps = (test_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE
     # Create the input data pipeline
     logging.info("Creating the dataset...")
-    test_iterator = data_preparation.build_dataset('test')
+    test_iterator = dp.build_dataset('test')
 
     # Define the model
     logging.info("Creating the model...")
     model = model_lib.BNN(train_size)
     test_loss = keras.metrics.Mean(name='test_loss')
     test_accuracy = keras.metrics.CategoricalAccuracy(name='test_accuracy')
-
+    corr_count, total = [[0 for m in params.brand_models] for i in range(2)]
 
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
         optimizer=keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
         net=model)
     manager = tf.train.CheckpointManager(ckpt, 
-                                         './ckpts/BNN_num_examples_3', 
+                                         './ckpts/BNN_num_examples_4', 
                                          max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
     logging.info("Restored from {}".format(manager.latest_checkpoint))
 
     @tf.function
-    def test_step(images, label):
+    def test_step(images, labels):
         with tf.GradientTape() as tape:
             logits = model(images)
             nll = keras.losses.categorical_crossentropy(labels,
-                                                        logits, from_logits=True)
+                                                        logits, 
+                                                        from_logits=True)
             kl = sum(model.losses)
             loss = nll + kl
-            
+            # accuracy for each class
+            for logit, label in zip(labels, logits):
+                y_true = tf.math.argmax(label)
+                y_pred = tf.math.argmax(logit)
+                total[y_true] += 1
+                if y_true == y_pred:
+                    corr_count[y_true] += 1
+
         test_loss.update_state(loss)  
         test_accuracy.update_state(labels, logits)  
 
@@ -73,8 +81,10 @@ def evaluate():
 
     logging.info('test loss: {:.3f}, test accuracy: {:.3%}\n'.format(test_loss.result(),
                                                         test_accuracy.result()))
+    for m, c, t in zip(params.models, corr_count, total):
+        logging.info('{} accuracy: {:.3%}'.format(m, c / t))    
 
-    names = [layer.name for layer in model.layers 
+    names = [layer.name for layer in model.layers
             if 'flipout' in layer.name]
     qm_vals = [layer.kernel_posterior.mean() 
             for layer in model.layers
@@ -85,9 +95,57 @@ def evaluate():
 
     utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
                                  fname="results/trained_weight.png")
-    logging.info("mean of mean is {}, mean variance is {}".
+    logging.info("\nmean of mean is {}, mean variance is {}".
                 format(tf.reduce_mean(qm_vals[0]),
                 tf.reduce_mean(qs_vals[0])))                              
 
+def vanilla_evaluate(log):
+    utils.set_logger(log)
+
+    test_size = 0
+    for m in params.brand_models:
+        test_size += len(os.listdir(os.path.join(params.patch_dir, 'test', m)))
+    num_test_steps = (test_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE
+    # Create the input data pipeline
+    logging.info("Start evalution...")
+    test_iterator = dp.build_dataset('test')
+
+    # Define the model
+    logging.info("Creating the model...")
+    model = model_lib.vanilla()
+    test_loss = keras.metrics.Mean(name='test_loss')
+    test_accuracy = keras.metrics.CategoricalAccuracy(name='test_accuracy')
+    corr_count, total = [[0 for m in params.brand_models] for i in range(2)]
+
+    @tf.function
+    def test_step(images, labels):
+        with tf.GradientTape() as tape:
+            logits = model(images)
+            loss = keras.losses.categorical_crossentropy(labels,
+                                                         logits, from_logits=True)
+        # accuracy for each class
+        for logit, label in zip(labels, logits):
+            y_true = tf.math.argmax(label)
+            y_pred = tf.math.argmax(logit)
+            total[y_true] += 1
+            if y_true == y_pred:
+                corr_count[y_true] += 1
+        test_loss.update_state(loss)  
+        test_accuracy.update_state(labels, logits)
+
+    for step in trange(num_test_steps):
+        images, labels = test_iterator.get_next()
+        test_step(images, labels)                                           
+
+    logging.info('test loss: {:.3f}, test accuracy: {:.3%}\n'.format(test_loss.result(),
+                                                        test_accuracy.result()))
+    for m, c, t in zip(params.models, corr_count, total):
+        logging.info('{} accuracy: {:.3%}'.format(m, c / t))
+
 if __name__ == '__main__':
-    evaluate()
+    if params.model_type == 'bnn':
+        log = 'results/' + params.database + '/bnn_num_examples.log'
+        bnn_evaluate(log)
+    elif params.model_tpye == 'vanilla':
+        log = 'results/' + params.database + '/vanilla.log'
+        vanilla_evaluate(log)
