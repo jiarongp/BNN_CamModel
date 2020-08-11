@@ -35,7 +35,7 @@ class BNN(keras.Model):
                 #  examples_per_epoch):
         super(BNN, self).__init__()
         divergence_fn = (lambda q, p, _: tfd.kl_divergence(q, p) / 
-                         tf.cast(2 * kl_weight, dtype=tf.float32))
+                         tf.cast(kl_weight, dtype=tf.float32))
 
         self.constrained_weights = None
         # no non-linearity after constrained layer

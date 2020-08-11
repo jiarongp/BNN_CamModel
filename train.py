@@ -17,9 +17,7 @@ def bnn_build_and_train(log, tb_log, ckpt_dir):
     # Set the logger
 
     utils.set_logger(log)
-
     logging.info("Creating the datasets...")
-
     dp.collect_split_extract(download_images=False,
                              parent_dir=params.patch_dir)
 
@@ -46,10 +44,38 @@ def bnn_build_and_train(log, tb_log, ckpt_dir):
     train_iterator = dp.build_dataset('train', class_imbalance=class_imbalance)
     val_iterator = dp.build_dataset('val')
 
-    model = (model_lib.BNN(train_size) 
-            if params.model_tpye == 'bnn'
-            else model_lib.vanilla())
-    loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
+    model = model_lib.BNN(train_size)
+
+    def focal_loss(labels, logits, gamma=2.0, alpha=4.0):
+        """
+        focal loss for multi-classification
+        FL(p_t)=-alpha(1-p_t)^{gamma}ln(p_t)
+        Notice: logits is probability after softmax
+        gradient is d(Fl)/d(p_t) not d(Fl)/d(x) as described in paper
+        d(Fl)/d(p_t) * [p_t(1-p_t)] = d(Fl)/d(x)
+        Lin, T.-Y., Goyal, P., Girshick, R., He, K., & Dollár, P. (2017).
+        Focal Loss for Dense Object Detection, 130(4), 485–491.
+        https://doi.org/10.1016/j.ajodo.2005.02.022
+        :param labels: ground truth labels, shape of [batch_size]
+        :param logits: model's output, shape of [batch_size, num_cls]
+        :param gamma:
+        :param alpha:
+        :return: shape of [batch_size]
+        """
+        epsilon = 1.e-9
+        softmax = tf.nn.softmax(logits)
+        num_cls = softmax.shape[1]
+
+        model_out = tf.math.add(softmax, epsilon)
+        ce = tf.math.multiply(labels, -tf.math.log(model_out))
+        weight = tf.math.multiply(labels, tf.math.pow(tf.math.subtract(1., model_out), gamma))
+        fl = tf.math.multiply(alpha, tf.math.multiply(weight, ce))
+        reduced_fl = tf.math.reduce_sum(fl, axis=1)
+        # reduced_fl = tf.reduce_sum(fl, axis=1)  # same as reduce_max
+        return reduced_fl
+
+    # loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
+    loss_object = focal_loss
     optimizer = keras.optimizers.Adam(lr=params.HParams['init_learning_rate'])
 
     train_loss = keras.metrics.Mean(name='train_loss')
@@ -67,9 +93,9 @@ def bnn_build_and_train(log, tb_log, ckpt_dir):
 
     # save model to a checkpoint
     ckpt = tf.train.Checkpoint(
-        step=tf.Variable(1), 
-        optimizer=keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
-        net=model)
+            step=tf.Variable(1), 
+            optimizer=keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
+            net=model)
     manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
     if params.restore:
@@ -177,6 +203,7 @@ def bnn_build_and_train(log, tb_log, ckpt_dir):
             logging.info("Saved checkpoint for epoch {}: {}\n".format(epoch, save_path))
         # early stopping after 10 epochs
         elif epoch > 10:
+        # else:
             stop_count += 1
         
         if stop_count >= params.patience:
@@ -290,7 +317,7 @@ def vanilla_build_and_train(log, tb_log, ckpt_dir):
             tf.summary.scalar('accuracy', val_acc.result(), step=offset+num_train_steps)
             val_writer.flush()
 
-        logging.info('val loss: {:.3f},validation accuracy: {:.3%}\n'.format(
+        logging.info('val loss: {:.3f}, validation accuracy: {:.3%}\n'.format(
                 val_loss.result(), val_acc.result()))
 
         # save the best model regarding to train acc
@@ -314,14 +341,14 @@ def vanilla_build_and_train(log, tb_log, ckpt_dir):
 
 
 if __name__ == '__main__':
-    log = 'results/' + params.database + '/' + params.model_tpye
-    tb_log = 'logs/' + params.database + '/' + params.model_tpye
-    ckpt_dir = 'ckpts/' + params.database + '/' + params.model_tpye
+    log = 'results/' + params.database + '/' + params.model_type
+    tb_log = 'logs/' + params.database + '/' + params.model_type
+    ckpt_dir = 'ckpts/' + params.database + '/' + params.model_type
     for path in [log, tb_log, ckpt_dir]:
         p_dir = os.path.dirname(path)
         if not os.path.exists(p_dir):
             os.makedirs(p_dir)
-    if params.model_tpye == 'bnn':
+    if params.model_type == 'bnn':
         bnn_build_and_train(log+'.log', tb_log, ckpt_dir)
-    elif params.model_tpye == 'vanilla': 
+    elif params.model_type == 'vanilla': 
         vanilla_build_and_train(log+'.log', tb_log, ckpt_dir)

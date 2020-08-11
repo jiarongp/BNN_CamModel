@@ -81,7 +81,7 @@ def plot_heldout_prediction(images, labels, probs, fname, n=5, title=''):
     n: Python `int` number of datapoints to vizualize.
     title: Python `str` title for the plot.
     """
-    fig = figure.Figure(figsize=(26, 3*n))
+    fig = figure.Figure(figsize=(4 * len(params.brand_models), 3*n))
     canvas = backend_agg.FigureCanvasAgg(fig)
     color_list = ['b', 'C1', 'g']
     d2c = dict(zip(params.brand_models, color_list))
@@ -161,7 +161,7 @@ def plot_weight_posteriors(names, qm_vals, qs_vals, fname):
 
 # right wrong distinction is for in distribution classification, to see how good the 
 # classifier perform in in distribution examples.
-def right_wrong_distinction(test_iterator, model, num_test_steps, fname='results/baseline.log'):
+def right_wrong_distinction(test_iterator, model, num_test_steps, fname):
     softmax_prob_all, softmax_prob_right, softmax_prob_wrong, accuracy = [], [], [], []
     for step in trange(num_test_steps):
         images, onehot_labels = test_iterator.get_next()
@@ -218,7 +218,7 @@ def right_wrong_distinction(test_iterator, model, num_test_steps, fname='results
 
 
 # in out distinction is for out distribution classifier
-def in_out_distinction(in_iter, out_iter, model, num_test_steps, ood_name, fname='results/baseline.log'):
+def in_out_distinction(in_iter, out_iter, model, num_test_steps, ood_name, fname):
     softmax_prob_in, softmax_prob_out, norm_base_rate, abnorm_base_rate = [], [], [], []
     for step in trange(num_test_steps):
         in_images, _ = in_iter.get_next()
@@ -263,6 +263,54 @@ def in_out_distinction(in_iter, out_iter, model, num_test_steps, ood_name, fname
         f.write('AUROC (%): {}\n'.format(auroc))
 
     return softmax_prob_in, softmax_prob_out
+
+def mc_in_out_distinction(in_iter, out_iter, model, 
+                          num_test_steps, 
+                          num_monte_carlo, 
+                          ood_name, fname):
+    mc_s_prob_in = []
+    mc_s_prob_out = []
+    for i in trange(num_monte_carlo):
+        softmax_prob_in, softmax_prob_out = [], []
+        for step in range(num_test_steps):
+            in_images, _ = in_iter.get_next()
+            out_images, _ = out_iter.get_next()
+            logits_in = model(in_images)
+            logits_out = model(out_images)
+            s_prob_in = tf.nn.softmax(logits_in)
+            s_prob_out = tf.nn.softmax(logits_out)
+            # all the softmax output in one monte carlo
+            # sample store in softmax_prob_in/out
+            # (num_test_steps, # test_samples, # classes)
+            softmax_prob_in.extend(s_prob_in)
+            softmax_prob_out.extend(s_prob_out)
+        # (# mc, # test_steps, # test_samples, # classes)
+        mc_s_prob_in.append(softmax_prob_in)
+        mc_s_prob_out.append(softmax_prob_out)
+
+    mc_s_prob_in = np.asarray(mc_s_prob_in)
+    mc_s_prob_out = np.asarray(mc_s_prob_out)
+    in_log_prob, in_epistemic_all = utils.image_uncertainty(mc_s_prob_in)
+    out_log_prob, out_epistemic_all = utils.image_uncertainty(mc_s_prob_out)
+    log_prob_unseen = [in_log_prob, out_log_prob]
+    epistemic_unseen = [in_epistemic_all, out_epistemic_all]
+
+    with open(fname, 'a') as f:
+        f.write("\n{} In Out Distinction\n".format(ood_name))
+        f.write('In-dist log probability (mean, std):\n')
+        f.write('{:.4f}, {:.4f}\n'.format(np.mean(in_log_prob),
+                                        np.std(in_log_prob)))
+        f.write('Out-dist log probability (mean, std):\n')
+        f.write('{:.4f}, {:.4f}\n'.format(np.mean(out_log_prob),
+                                        np.std(out_log_prob)))
+        f.write('In-dist epistemic uncertainty(mean, std):\n')
+        f.write('{:.4f}, {:.4f}\n'.format(np.mean(in_epistemic_all),
+                                        np.std(in_epistemic_all)))
+        f.write('Out-dist epistemic uncertainty(mean, std):\n')
+        f.write('{:.4f}, {:.4f}\n'.format(np.mean(out_epistemic_all),
+                                        np.std(out_epistemic_all)))
+    
+    return log_prob_unseen, epistemic_unseen
 
 def area_under_curves(safe, risky, inverse=False):
     labels = np.zeros((safe.shape[0] + risky.shape[0]), dtype=np.int32)

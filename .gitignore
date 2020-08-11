@@ -2,7 +2,9 @@ data/*/
 *.vscode/
 *__pycache__
 *.ipynb_checkpoints/
+*.ipynb
 ckpts/
 logs/
 tfp_bayesian/
 results/
+venv/

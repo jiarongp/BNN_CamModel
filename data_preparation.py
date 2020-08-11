@@ -4,14 +4,13 @@ import numpy as np
 import pandas as pd
 import logging
 import params
-from tqdm import tqdm
 import urllib
 import tensorflow as tf
 import tensorflow_addons as tfa
-from multiprocessing import Pool
+from tqdm import tqdm, trange
+# from multiprocessing import Pool
 from skimage.util.shape import view_as_blocks
 from skimage import io
-
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 def collect_dataset(data, images_dir, brand_models, download=False):
@@ -113,7 +112,7 @@ def split_dataset(img_list, brand_models, seed=42):
             split_ds.append([train, val, test])
     else:
         # num_test equals to num_val
-        num_val = int(len(img_list) * 0.15)
+        num_test = num_val = int(len(img_list) * 0.15)
         num_train = len(img_list) - num_test - num_val
 
         np.random.seed(seed)
@@ -238,6 +237,23 @@ def collect_split_extract(parent_dir, download_images=False):
         patch(path=split_ds[i][2], data_id='test', parent_dir=parent_dir)
         logging.info("... Done\n")
 
+def collect_unseen(download):
+    # collect odd data
+    data = pd.read_csv(params.ds_csv)
+    if params.database == 'dresden':
+        data = data[([m in params.unseen_models for m in data['model']])]
+    elif params.database == 'RAISE':
+        device = [' '.join([b, m]) for (b, m) in zip(params.unseen_brands, params.unseen_models)]
+        data = data[([d in device for d in data['Device']])]
+
+    image_paths = collect_dataset(data, 
+                                 params.ds_image_dir,
+                                 params.unseen_brand_models,
+                                 download=download)
+
+    for i in trange(len(image_paths)):
+        patch(path=image_paths, data_id='test', parent_dir=params.unseen_dir)
+    print("... Done\n")
 
 def parse_image(img_path, post_processing=None):
     label = tf.strings.split(img_path, os.path.sep)[-2]
@@ -246,11 +262,13 @@ def parse_image(img_path, post_processing=None):
 
     # load the raw data from the file as a string
     if params.database == 'RAISE':
-        image = io.imread(img_path.numpy().decode())
+        # image = [io.imread(path.numpy().decode('utf8')) for path in img_path]
+        # image = tf.stack(image, axis=0)
+        image = io.imread(img_path.numpy().decode('utf8'))
+        image = image[..., None]
     else:
         image = tf.io.read_file(img_path)
         image = tf.image.decode_png(image)
-
 
     # image covert to tf.float32 and /255.
     image = tf.image.convert_image_dtype(image, tf.float32)
@@ -276,7 +294,8 @@ def parse_image(img_path, post_processing=None):
 def build_dataset(data_id, class_imbalance=False):
     # zip image and label
     # The Dataset.map(f) transformation produces a new dataset by applying a 
-    # given function f to each element of the input dataset. 
+    # given function f to each element of the input dataset.
+    fn = lambda x: tf.py_function(parse_image, inp=[x], Tout=[tf.float32, tf.float32])
     if data_id == 'train':
         # use oversampling to counteract the class imbalance
         # https://www.tensorflow.org/tutorials/structured_data/imbalanced_data#oversampling
@@ -288,28 +307,36 @@ def build_dataset(data_id, class_imbalance=False):
                 class_datasets.append(class_dataset)
             # uniformly samples in the class_datasets
             dataset = (tf.data.experimental.sample_from_datasets(class_datasets)
-                      .map(parse_image, num_parallel_calls=AUTOTUNE)
-                      .batch(params.BATCH_SIZE)
-                      .prefetch(buffer_size=AUTOTUNE))  # make sure you always have one batch ready to serve
+                       .map(parse_image if params.database == 'dresden'
+                            else fn, num_parallel_calls=AUTOTUNE 
+                            if params.database == 'dresden' else None)
+                       .batch(params.BATCH_SIZE)
+                       .prefetch(buffer_size=AUTOTUNE))  # make sure you always have one batch ready to serve
             
         else:
             dataset = (tf.data.Dataset.list_files(params.patch_dir + '/train/*/*')
-                      .repeat()
-                      .shuffle(buffer_size=1000)  # whole dataset into the buffer ensures good shuffling
-                      .map(parse_image, num_parallel_calls=AUTOTUNE)
-                      .batch(params.BATCH_SIZE)
-                      .prefetch(buffer_size=AUTOTUNE))
+                       .repeat()
+                       .shuffle(buffer_size=1000)  # whole dataset into the buffer ensures good shuffling
+                       .map(parse_image if params.database == 'dresden'
+                            else fn, num_parallel_calls=AUTOTUNE 
+                            if params.database == 'dresden' else None)
+                       .batch(params.BATCH_SIZE)
+                       .prefetch(buffer_size=AUTOTUNE))
     elif data_id == 'val':
         dataset = (tf.data.Dataset.list_files(params.patch_dir + '/val/*/*')
-                  .repeat()
-                  .map(parse_image, num_parallel_calls=AUTOTUNE)
-                  .batch(params.BATCH_SIZE)
-                  .prefetch(buffer_size=AUTOTUNE))
+                   .repeat()
+                   .map(parse_image if params.database == 'dresden'
+                        else fn, num_parallel_calls=AUTOTUNE 
+                        if params.database == 'dresden' else None)
+                   .batch(params.BATCH_SIZE)
+                   .prefetch(buffer_size=AUTOTUNE))
     else:
         dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
-                  .map(parse_image, num_parallel_calls=AUTOTUNE)
-                  .batch(params.BATCH_SIZE)
-                  .prefetch(buffer_size=AUTOTUNE))
+                   .map(parse_image if params.database == 'dresden'
+                        else fn, num_parallel_calls=AUTOTUNE 
+                        if params.database == 'dresden' else None)
+                   .batch(params.BATCH_SIZE)
+                   .prefetch(buffer_size=AUTOTUNE))
 
     iterator = iter(dataset)
     return iterator

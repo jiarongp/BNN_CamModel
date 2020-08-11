@@ -1,6 +1,6 @@
-model_tpye = 'vanilla'
-database = 'RAISE'
-even_database = True
+model_type = 'bnn'
+database = 'dresden'
+even_database = False
 if database == 'dresden':
     # dresden brand model
     brands = ['Canon', 'Canon', 'Nikon', 'Nikon', 'Olympus', 'Sony', 'Sony']
@@ -11,8 +11,8 @@ if database == 'dresden':
     ds_image_dir = 'data/dresden'
     patch_dir = ('data/even_dresden_base' 
                  if even_database else 'data/dresden_base')
-    unseen_dir = 'data/dresden_unseen/'
-    unseen_images_dir = 'data/dresden_unseen/test'
+    unseen_dir = 'data/dresden_unseen'
+    print_fig_step = 50
 
 elif database == 'RAISE':
     # RAISE brand model
@@ -25,8 +25,8 @@ elif database == 'RAISE':
     ds_image_dir = 'data/RAISE'
     patch_dir = ('data/even_RAISE_base' 
                  if even_database else 'data/RAISE_base')
-    unseen_dir = 'data/RAISE_unseen/'
-    unseen_images_dir = 'data/RAISE_unseen/test'
+    unseen_dir = 'data/RAISE_unseen'
+    print_fig_step = 10
 
 brand_models = ['_'.join([b, m]) for (b, m) in zip(brands, models)]
 unseen_brand_models = ['_'.join([b, m]) for (b, m) in zip(unseen_brands, unseen_models)]

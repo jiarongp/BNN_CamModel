@@ -13,7 +13,7 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 
 
-def bnn_evaluate(log):
+def bnn_evaluate(log, result_dir, ckpt_dir):
     utils.set_logger(log)
     num_monte_carlo = 30
     test_size = 0
@@ -38,7 +38,7 @@ def bnn_evaluate(log):
         optimizer=keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
         net=model)
     manager = tf.train.CheckpointManager(ckpt, 
-                                         './ckpts/BNN_num_examples_4', 
+                                         ckpt_dir, 
                                          max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
     logging.info("Restored from {}".format(manager.latest_checkpoint))
@@ -67,14 +67,14 @@ def bnn_evaluate(log):
         images, labels = test_iterator.get_next()
         test_step(images, labels)
 
-        if step % 50 == 0:
+        if step % params.print_fig_step == 0:
             probs, heldout_log_prob = utils.compute_probs(model, images)
             logging.info(' ... Held-out nats: {:.3f}\n'.format(heldout_log_prob))
             # transform from onehot to strings
             index = tf.argmax(labels.numpy(), axis=1)
             labels = [params.brand_models[i] for i in index]
             utils.plot_heldout_prediction(images, labels, probs,
-                                  fname='results/step{}_pred.png'.
+                                  fname=result_dir + 'step{}_pred.png'.
                                         format(step),
                                   title='mean heldout logprob {:.2f}'
                                   .format(heldout_log_prob))                                                 
@@ -94,12 +94,12 @@ def bnn_evaluate(log):
             if 'flipout' in layer.name]
 
     utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
-                                 fname="results/trained_weight.png")
+                                 fname=result_dir + "/trained_weight.png")
     logging.info("\nmean of mean is {}, mean variance is {}".
                 format(tf.reduce_mean(qm_vals[0]),
                 tf.reduce_mean(qs_vals[0])))                              
 
-def vanilla_evaluate(log):
+def vanilla_evaluate(log, ckpt_dir):
     utils.set_logger(log)
 
     test_size = 0
@@ -116,6 +116,16 @@ def vanilla_evaluate(log):
     test_loss = keras.metrics.Mean(name='test_loss')
     test_accuracy = keras.metrics.CategoricalAccuracy(name='test_accuracy')
     corr_count, total = [[0 for m in params.brand_models] for i in range(2)]
+
+    ckpt = tf.train.Checkpoint(
+    step=tf.Variable(1), 
+    optimizer=keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
+    net=model)
+    manager = tf.train.CheckpointManager(ckpt, 
+                                         ckpt_dir, 
+                                         max_to_keep=3)
+    ckpt.restore(manager.latest_checkpoint)
+    logging.info("Restored from {}".format(manager.latest_checkpoint))
 
     @tf.function
     def test_step(images, labels):
@@ -143,9 +153,10 @@ def vanilla_evaluate(log):
         logging.info('{} accuracy: {:.3%}'.format(m, c / t))
 
 if __name__ == '__main__':
+    ckpt_dir = 'ckpts/' + params.database + '/' + params.model_type
+    result_dir = 'results/' + params.database + '/'
+    log = result_dir + params.model_type + '.log'
     if params.model_type == 'bnn':
-        log = 'results/' + params.database + '/bnn_num_examples.log'
-        bnn_evaluate(log)
-    elif params.model_tpye == 'vanilla':
-        log = 'results/' + params.database + '/vanilla.log'
-        vanilla_evaluate(log)
+        bnn_evaluate(log, result_dir, ckpt_dir)
+    elif params.model_type == 'vanilla':
+        vanilla_evaluate(log, ckpt_dir)
