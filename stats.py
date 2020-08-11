@@ -20,11 +20,10 @@ def bnn_stats(ckpt_dir, stats_fig, fname, download):
     # collect data from unseen models
     dp.collect_unseen(download=download)
     # import BNN model
+
     train_size = 0
     for m in params.brand_models:
         train_size += len(os.listdir(os.path.join(params.patch_dir, 'train', m)))
-    batch_size = np.int64(params.BATCH_SIZE / 2)
-    num_test_steps = (train_size + batch_size - 1) // batch_size
 
     model = model_lib.BNN(train_size)
     ckpt = tf.train.Checkpoint(
@@ -34,90 +33,129 @@ def bnn_stats(ckpt_dir, stats_fig, fname, download):
     manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
 
-    
-    fn = lambda x: tf.py_function(dp.parse_image, inp=[x], Tout=[tf.float32, tf.float32])
-    in_dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
-                .repeat()
-                .map(dp.parse_image if params.database == 'dresden'
-                    else fn, num_parallel_calls=AUTOTUNE 
-                    if params.database == 'dresden' else None)
-                .batch(batch_size)
-                .prefetch(buffer_size=AUTOTUNE))
+    # set a fix subset of total test dataset, so that:
+    # 1. each class has same size of test images
+    # 2. each monte carlo draw has the same images as input
+    # 3. random seed controls the how to sample this subset
+    def aligned_ds(test_dir, brand_models, num_batches=None, seed=44):
+        # default for 'test' data
+        np.random.seed(seed)
+        image_paths, num_images, ds = [], [], []
+        for model in brand_models:
+            images = os.listdir(os.path.join(test_dir, 'test', model))
+            paths = [os.path.join(test_dir, 'test', model, im) for im in images]
+            image_paths.append(paths)
+            num_images.append(len(images))
+        num_test_batches = min(num_images) // params.BATCH_SIZE
 
-    unseen_dataset = (tf.data.Dataset.list_files(params.unseen_dir + '/test/*/*')
+        # sometimes database has more data in 'test', some has more in 'unseen'
+        if num_batches is not None:
+            num_test_batches = min(num_test_batches, num_batches)
+
+        for model, images in zip(params.brand_models, image_paths):
+            np.random.shuffle(images)
+            ds.extend(images[0:num_test_batches * params.BATCH_SIZE])
+
+        return ds, num_test_batches
+
+    ds, num_test_batches = aligned_ds(params.patch_dir, 
+                                      params.brand_models)
+    unseen_ds, num_unseen_batches = aligned_ds(params.unseen_dir, 
+                                               params.unseen_brand_models,
+                                               num_batches=num_test_batches)
+
+    fn = lambda x: tf.py_function(dp.parse_image, inp=[x], Tout=[tf.float32, tf.float32])
+    in_dataset = (tf.data.Dataset.from_tensor_slices(ds)
                     .repeat()
-                    .map(dp.parse_image if params.database == 'dresden' else fn, 
-                        num_parallel_calls=AUTOTUNE 
-                        if params.database == 'dresden' else None)  
-                    .batch(batch_size)
+                    .map(dp.parse_image if params.database == 'dresden'
+                        else fn, num_parallel_calls=AUTOTUNE 
+                        if params.database == 'dresden' else None)
+                    .batch(params.BATCH_SIZE )
                     .prefetch(buffer_size=AUTOTUNE))
+    
+    unseen_in_dataset = (tf.data.Dataset.from_tensor_slices(unseen_ds)
+                            .repeat()
+                            .map(dp.parse_image if params.database == 'dresden' else fn, 
+                                num_parallel_calls=AUTOTUNE 
+                                if params.database == 'dresden' else None)  
+                            .batch(params.BATCH_SIZE )
+                            .prefetch(buffer_size=AUTOTUNE))
+
+    unseen_out_dataset = (tf.data.Dataset.list_files(params.unseen_dir + '/test/*/*')
+                            .repeat()
+                            .map(dp.parse_image if params.database == 'dresden' else fn, 
+                                num_parallel_calls=AUTOTUNE 
+                                if params.database == 'dresden' else None)  
+                            .batch(params.BATCH_SIZE )
+                            .prefetch(buffer_size=AUTOTUNE))
 
     jpeg_fn = lambda x: tf.py_function(dp.parse_image, inp=[x, 'jpeg'], Tout=[tf.float32, tf.float32])
-    jpeg_dataset = (tf.data.Dataset.list_files(params.patch_dir+ '/test/*/*')
+    jpeg_dataset = (tf.data.Dataset.from_tensor_slices(ds)
                     .repeat()
                     .map(functools.partial(dp.parse_image, post_processing='jpeg')
                         if params.database == 'dresden' else jpeg_fn,
                         num_parallel_calls=AUTOTUNE 
                         if params.database == 'dresden' else None)
-                    .batch(batch_size)
+                    .batch(params.BATCH_SIZE )
                     .prefetch(buffer_size=AUTOTUNE))
 
     blur_fn = lambda x: tf.py_function(dp.parse_image, inp=[x, 'blur'], Tout=[tf.float32, tf.float32])
-    blur_dataset = (tf.data.Dataset.list_files(params.patch_dir+ '/test/*/*')
+    blur_dataset = (tf.data.Dataset.from_tensor_slices(ds)
                     .repeat()
                     .map(functools.partial(dp.parse_image, post_processing='blur') 
                         if params.database == 'dresden' else blur_fn,
                         num_parallel_calls=AUTOTUNE 
                         if params.database == 'dresden' else None)
-                    .batch(batch_size)
+                    .batch(params.BATCH_SIZE)
                     .prefetch(buffer_size=AUTOTUNE))
     
     noise_fn = lambda x: tf.py_function(dp.parse_image, inp=[x, 'noise'], Tout=[tf.float32, tf.float32])
-    noise_dataset = (tf.data.Dataset.list_files(params.patch_dir+ '/test/*/*')
-                    .repeat()
-                    .map(functools.partial(dp.parse_image, post_processing='noise')
-                        if params.database == 'dresden' else noise_fn,
-                        num_parallel_calls=AUTOTUNE 
-                        if params.database == 'dresden' else None)
-                    .batch(batch_size)
-                    .prefetch(buffer_size=AUTOTUNE))
+    noise_dataset = (tf.data.Dataset.from_tensor_slices(ds)
+                        .repeat()
+                        .map(functools.partial(dp.parse_image, post_processing='noise')
+                            if params.database == 'dresden' else noise_fn,
+                            num_parallel_calls=AUTOTUNE 
+                            if params.database == 'dresden' else None)
+                        .batch(params.BATCH_SIZE)
+                        .prefetch(buffer_size=AUTOTUNE))
 
     in_iter = iter(in_dataset)
-    unseen_iter = iter(unseen_dataset)
+    unseen_in_iter = iter(unseen_in_dataset)
+    unseen_out_iter = iter(unseen_out_dataset)
     jpeg_iter = iter(jpeg_dataset)
     blur_iter = iter(blur_dataset)
     noise_iter = iter(noise_dataset)
 
 
     unseen_log_prob, unseen_epistemic = utils.mc_in_out_distinction(
-                                            in_iter, unseen_iter, 
-                                            num_test_steps, # todo
+                                            unseen_in_iter, unseen_out_iter, 
+                                            model, num_unseen_batches,
                                             params.num_monte_carlo,
                                             'UNSEEN', fname)
     jpeg_log_prob, jpeg_epistemic = utils.mc_in_out_distinction(
-                                            in_iter, jpeg_iter, 
-                                            num_test_steps, 
+                                            in_iter, jpeg_iter, model,
+                                            num_test_batches,
                                             params.num_monte_carlo,
                                             'JPEG', fname)
     blur_log_prob, blur_epistemic = utils.mc_in_out_distinction(
-                                            in_iter, blur_iter, 
-                                            num_test_steps, 
+                                            in_iter, blur_iter, model, 
+                                            num_test_batches,
                                             params.num_monte_carlo,
                                             'BLUR', fname)
     noise_log_prob, noise_epistemic = utils.mc_in_out_distinction(
-                                            in_iter, noise_iter, 
-                                            num_test_steps, 
+                                            in_iter, noise_iter, model, 
+                                            num_test_batches,
                                             params.num_monte_carlo,
                                             'NOISE', fname)
-                                            
+
 
     targets = [('log_prob, unseen models', unseen_log_prob), 
-                ('epistemic, unseen models', unseen_epistemic),
                 ('log_prob, jpeg models', jpeg_log_prob), 
-                ('epistemic, jpeg models', jpeg_epistemic),
                 ('log_prob, blur models', blur_log_prob), 
-                ('epistemic, blur models', blur_epistemic),
                 ('log_prob, noise models', noise_log_prob), 
+                ('epistemic, unseen models', unseen_epistemic),
+                ('epistemic, jpeg models', jpeg_epistemic),
+                ('epistemic, blur models', blur_epistemic),
                 ('epistemic, noise models', noise_epistemic)]
 
     # Plotting ROC and PR curves 
@@ -170,21 +208,20 @@ def vanilla_stats(ckpt_dir, stats_fig, fname, download):
 
 
     # build in & out of distribution dataset iterator
-    batch_size = np.int64(params.BATCH_SIZE / 2)
     fn = lambda x: tf.py_function(dp.parse_image, inp=[x], Tout=[tf.float32, tf.float32])
     in_dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
                     .repeat()
                     .map(dp.parse_image if params.database == 'dresden' else fn, 
                          num_parallel_calls=AUTOTUNE 
                          if params.database == 'dresden' else None) 
-                    .batch(batch_size)
+                    .batch(params.BATCH_SIZE)
                     .prefetch(buffer_size=AUTOTUNE))
 
     unseen_dataset = (tf.data.Dataset.list_files(params.unseen_dir + '/test/*/*')
                         .map(dp.parse_image if params.database == 'dresden' else fn, 
                             num_parallel_calls=AUTOTUNE 
                             if params.database == 'dresden' else None)  
-                        .batch(batch_size)
+                        .batch(params.BATCH_SIZE)
                         .prefetch(buffer_size=AUTOTUNE))
 
     jpeg_fn = lambda x: tf.py_function(dp.parse_image, inp=[x, 'jpeg'], Tout=[tf.float32, tf.float32])
@@ -193,7 +230,7 @@ def vanilla_stats(ckpt_dir, stats_fig, fname, download):
                         if params.database == 'dresden' else jpeg_fn,
                         num_parallel_calls=AUTOTUNE 
                         if params.database == 'dresden' else None)
-                    .batch(batch_size)
+                    .batch(params.BATCH_SIZE)
                     .prefetch(buffer_size=AUTOTUNE))
 
     blur_fn = lambda x: tf.py_function(dp.parse_image, inp=[x, 'blur'], Tout=[tf.float32, tf.float32])
@@ -202,7 +239,7 @@ def vanilla_stats(ckpt_dir, stats_fig, fname, download):
                         if params.database == 'dresden' else blur_fn,
                         num_parallel_calls=AUTOTUNE 
                         if params.database == 'dresden' else None)
-                    .batch(batch_size)
+                    .batch(params.BATCH_SIZE)
                     .prefetch(buffer_size=AUTOTUNE))
     
     noise_fn = lambda x: tf.py_function(dp.parse_image, inp=[x, 'noise'], Tout=[tf.float32, tf.float32])
@@ -211,7 +248,7 @@ def vanilla_stats(ckpt_dir, stats_fig, fname, download):
                         if params.database == 'dresden' else noise_fn,
                         num_parallel_calls=AUTOTUNE 
                         if params.database == 'dresden' else None)
-                    .batch(batch_size)
+                    .batch(params.BATCH_SIZE)
                     .prefetch(buffer_size=AUTOTUNE))
 
     in_iter = iter(in_dataset)
@@ -226,8 +263,7 @@ def vanilla_stats(ckpt_dir, stats_fig, fname, download):
     unseen_ds_size = 0
     for m in params.unseen_brand_models:
         unseen_ds_size += len(os.listdir(os.path.join(params.unseen_dir, 'test', m)))
-    num_unseen_steps = (unseen_ds_size + batch_size - 1) // batch_size
-    num_test_steps = (test_size + batch_size - 1) // batch_size
+    num_unseen_steps = (unseen_ds_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE
 
     unseen_prob_in, unseen_prob_out = utils.in_out_distinction(in_iter, unseen_iter, 
                                                                 model, num_unseen_steps,

@@ -155,17 +155,9 @@ Would be great if you could repeat your experiments with `batch_size=1`.
 One observation is that, if using a smaller kl weight (divided by a larger number), the model will converge faster, i.e. have higher accuracy with less epochs, but I assume it doesn't learn the prior distribution well.
 
 - using number of training images, the model converge quickly (96% acc after 5 epochs), but the ouput uncertainty on out-of-distribution data is bad.
-  - ![kl_weight_num_examples](kl_weight_num_examples.png)
-  - ![kl_weight_num_examples_len_bach](lenbach_num_examples.png)
-  - ![kl_weight_num_examples_blur_len_bach](blur_num_examples.png)
-  - ![kl_weight_num_examples_kernel_mean_variance](num_examples_weight_means_stddev.png)
 
 - using number of batches as kl_weights, the model converge slowly and diverge after 6 epochs, but the ouput uncertainty is not improved.(I expect it would have a good distribution of weight)
   - Result: test loss: 48.905, test accuracy: 79.955% (because its not converging, model using the 6th training epochs, val_loss: 777.0889, val_accuracy: 0.8173), outputs entropy has 0.292 nats. 
-  - ![kl_weight_num_batches](kl_weight_num_batches.png)
-  - ![kl_weight_num_batches_len_bach](lenbach_num_batches.png)
-  - ![kl_weight_num_batches_blur_len_bach](blur_num_batches.png)
-  - ![kl_weight_num_batches_kernel_mean_variance](num_batches_weight_means_stddev.png)
 
 - using model.add is not the same as defining the sequential model straightfowardly. (bug on tfp)
 
@@ -201,94 +193,6 @@ The dataset has 41,325 training images, 1292 batches.
   - Also, there is a way to calculate the uncertainty (here)[https://github.com/ykwon0407/UQ_BNN/issues/3#issuecomment-455529058]
 
 
-### 10 times num_batches
-
-trained 10 epochs, diverge after 5 epochs, 
-
-<img src="10_num_batches/epoch_accuracy.svg" width="400">
-<img src="10_num_batches/epoch_loss.svg" width="400">
-
-
-```
-Epoch 1/10
-loss: 133.7316 - accuracy: 0.6160 - val_loss: 118.0698 - val_accuracy: 0.8176
-Epoch 2/10
-loss: 127.5537 - accuracy: 0.8601 - val_loss: 120.0852 - val_accuracy: 0.9262
-Epoch 3/10
-loss: 128.0877 - accuracy: 0.9088 - val_loss: 123.0477 - val_accuracy: 0.9007
-Epoch 4/10
-loss: 130.3315 - accuracy: 0.8952 - val_loss: 123.0095 - val_accuracy: 0.9362
-Epoch 5/10
-loss: 128.7409 - accuracy: 0.8810 - val_loss: 118.6900 - val_accuracy: 0.9288
-Epoch 6/10
-loss: 141.9019 - accuracy: 0.8795 - val_loss: 142.1279 - val_accuracy: 0.7591
-Epoch 7/10
-loss: 160.6388 - accuracy: 0.7838 - val_loss: 116.5953 - val_accuracy: 0.8590
-Epoch 8/10
-loss: 132.0206 - accuracy: 0.6244 - val_loss: 120.9902 - val_accuracy: 0.6095
-Epoch 9/10
-loss: 128.2323 - accuracy: 0.6142 - val_loss: 118.1300 - val_accuracy: 0.6710
-Epoch 10/10
-loss: 130.9932 - accuracy: 0.6074 - val_loss: 117.8660 - val_accuracy: 0.5899
-```
-<img src="10_num_batches/trained_posterior.png" width="800">
-
-mean of mean is -0.005809836555272341, mean variance is 0.05363716930150986
-12 out of 25 patches output high variance, others are over confident on Canon Ixus70.
-
-```python
-def make_prior_fn_for_empirical_bayes(init_scale_mean=-1, init_scale_std=0.1):
-    """Returns a prior function with stateful parameters for EB models."""
-    def prior_fn(dtype, shape, name, _, add_variable_fn):
-        """A prior for the variational layers."""
-        untransformed_scale = add_variable_fn(
-            name=name + '_untransformed_scale',
-            shape=(1,),
-            initializer=tf.compat.v1.initializers.random_normal(
-                mean=init_scale_mean, stddev=init_scale_std),
-            dtype=dtype,
-            trainable=False)
-        loc = add_variable_fn(
-            name=name + '_loc',
-            initializer=keras.initializers.Zeros(),
-            shape=shape,
-            dtype=dtype,
-            trainable=True)
-        scale = 1e-6 + tf.nn.softplus(untransformed_scale)
-        dist = tfd.Normal(loc=loc, scale=scale)
-        batch_ndims = tf.size(input=dist.batch_shape_tensor())
-        return tfd.Independent(dist, reinterpreted_batch_ndims=batch_ndims)
-    return prior_fn
-```
-
-Change the init_prior_scale_mean from -1.9994 (after softplus 0.12699955169791002) to -3 (after softplus 0.04858735157374196).
--3 is the default value when without eb.
-
-### 10 times num_batches with empirical bayes
-
-```
-Epoch 1/10 
-loss: 116.6549 - accuracy: 0.4297 - val_loss: 76.1993 - val_accuracy: 0.5235
-Epoch 2/10
-loss: 56.2346 - accuracy: 0.5342 - val_loss: 28.1259 - val_accuracy: 0.6680
-Epoch 3/10
-loss: 20.1925 - accuracy: 0.7512 - val_loss: 3.9227 - val_accuracy: 0.8650
-Epoch 4/10
-loss: 3.8699 - accuracy: 0.8735 - val_loss: -1.9055 - val_accuracy: 0.8535
-Epoch 5/10
-loss: -6.5991 - accuracy: 0.9306 - val_loss: -10.5771 - val_accuracy: 0.9449
-Epoch 6/10
-loss: -10.8080 - accuracy: 0.9437 - val_loss: -13.0366 - val_accuracy: 0.9685
-Epoch 7/10
-loss: -7.1047 - accuracy: 0.9465 - val_loss: -5.1038 - val_accuracy: 0.9506
-Epoch 8/10
-loss: -0.2450 - accuracy: 0.9366 - val_loss: -3.7718 - val_accuracy: 0.9139
-Epoch 00008: early stopping
-saved trained_posterior.png
-mean of mean is 0.003459890838712454, mean variance is 0.040473055094480515
-```
-Why negative loss?
-
 ## Week 9
 
 - output score of epistemic uncertainty for the images
@@ -305,7 +209,11 @@ About aleatoric and epistemic uncertainty
   - histogram of variance
   - ROC curve
 
+# Week 10
 Nikon_D7000_r0bf7f938t.TIF is corrupted.
+
+
+
 
 ## Note
 

@@ -133,7 +133,7 @@ def split_dataset(img_list, brand_models, seed=42):
     return split_ds
 
 
-def _patchify(img_path, patch_span=params.patch_span):
+def patchify(img_path, patch_span=params.patch_span):
     """Separate the full-sized image into 256 x 256 image patches. By default, the full-sized
     images is split into 25 patches.
     Args:
@@ -168,12 +168,12 @@ def patch(path, data_id, parent_dir):
                        'parent_dir':parent_dir}]
     # num_processes = 4
     # pool = Pool(processes=num_processes)
-    # pool.map(_extract, imgs_list)
+    # pool.map(extract, imgs_list)
     for img in imgs_list:
-        _extract(img)
+        extract(img)
 
 
-def _extract(args):
+def extract(args):
     """extract patches from full-sized image
     Args:
         data_id: dataset the image belongs to, 'train', 'val' or 'test'
@@ -204,7 +204,7 @@ def _extract(args):
             read_img = True
             break
     if read_img:
-        patches = _patchify(args['img_path']).reshape((-1, 256, 256))
+        patches = patchify(args['img_path']).reshape((-1, 256, 256))
         for out_path, patch in zip(output_rel_paths, patches):
             out_fullpath = os.path.join(parent_dir, out_path)
             # the diretory of the patches images
@@ -251,8 +251,7 @@ def collect_unseen(download):
                                  params.unseen_brand_models,
                                  download=download)
 
-    for i in trange(len(image_paths)):
-        patch(path=image_paths, data_id='test', parent_dir=params.unseen_dir)
+    patch(path=image_paths, data_id='test', parent_dir=params.unseen_dir)
     print("... Done\n")
 
 def parse_image(img_path, post_processing=None):
@@ -322,6 +321,7 @@ def build_dataset(data_id, class_imbalance=False):
                             if params.database == 'dresden' else None)
                        .batch(params.BATCH_SIZE)
                        .prefetch(buffer_size=AUTOTUNE))
+
     elif data_id == 'val':
         dataset = (tf.data.Dataset.list_files(params.patch_dir + '/val/*/*')
                    .repeat()
@@ -330,7 +330,8 @@ def build_dataset(data_id, class_imbalance=False):
                         if params.database == 'dresden' else None)
                    .batch(params.BATCH_SIZE)
                    .prefetch(buffer_size=AUTOTUNE))
-    else:
+
+    elif data_id == 'test':
         dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
                    .map(parse_image if params.database == 'dresden'
                         else fn, num_parallel_calls=AUTOTUNE 

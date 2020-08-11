@@ -290,8 +290,8 @@ def mc_in_out_distinction(in_iter, out_iter, model,
 
     mc_s_prob_in = np.asarray(mc_s_prob_in)
     mc_s_prob_out = np.asarray(mc_s_prob_out)
-    in_log_prob, in_epistemic_all = utils.image_uncertainty(mc_s_prob_in)
-    out_log_prob, out_epistemic_all = utils.image_uncertainty(mc_s_prob_out)
+    in_log_prob, in_epistemic_all = image_uncertainty(mc_s_prob_in)
+    out_log_prob, out_epistemic_all = image_uncertainty(mc_s_prob_out)
     log_prob_unseen = [in_log_prob, out_log_prob]
     epistemic_unseen = [in_epistemic_all, out_epistemic_all]
 

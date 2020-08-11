@@ -94,7 +94,7 @@ def bnn_evaluate(log, result_dir, ckpt_dir):
             if 'flipout' in layer.name]
 
     utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
-                                 fname=result_dir + "/trained_weight.png")
+                                 fname=result_dir + "trained_weight.png")
     logging.info("\nmean of mean is {}, mean variance is {}".
                 format(tf.reduce_mean(qm_vals[0]),
                 tf.reduce_mean(qs_vals[0])))                              

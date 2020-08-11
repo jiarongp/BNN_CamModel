@@ -3,8 +3,10 @@ database = 'dresden'
 even_database = False
 if database == 'dresden':
     # dresden brand model
-    brands = ['Canon', 'Canon', 'Nikon', 'Nikon', 'Olympus', 'Sony', 'Sony']
-    models = ['Ixus70', 'Ixus55', 'D200', 'D70', 'mju-1050SW', 'DSC-H50', 'DSC-T77']
+    # brands = ['Canon', 'Canon', 'Nikon', 'Nikon', 'Olympus', 'Sony', 'Sony']
+    # models = ['Ixus70', 'Ixus55', 'D200', 'D70', 'mju-1050SW', 'DSC-H50', 'DSC-T77']
+    brands = ['Canon', 'Canon', 'Nikon', 'Nikon', 'Olympus']
+    models = ['Ixus70', 'Ixus55', 'D200', 'D70', 'mju-1050SW']
     unseen_brands = ['Agfa', 'Canon', 'Sony']
     unseen_models = ['DC-830i', 'PowerShotA640', 'DSC-W170']
     ds_csv = 'data/dresden.csv'
