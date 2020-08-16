@@ -35,6 +35,8 @@ def set_logger(log_path):
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(logging.Formatter('%(message)s'))
         logger.addHandler(stream_handler)
+
+# ---------------------------- Uncertainty ---------------------------------------
         
 def decompose_uncertainties(p_hat):
     """
@@ -68,6 +70,36 @@ def decompose_uncertainties(p_hat):
 
     return aleatoric, epistemic
 
+
+def compute_probs(model, images, num_monte_carlo=30):
+    probs = tf.stack([tf.keras.layers.Activation('softmax')(model(images)) for _ in range(num_monte_carlo)], axis=0)
+    mean_probs = tf.reduce_mean(probs, axis=0)
+    eps = tf.convert_to_tensor(np.finfo(float).eps, dtype=tf.float32)
+    sum_log_prob = -tf.reduce_sum(tf.math.multiply(mean_probs, tf.math.log(mean_probs + eps)), axis=1)
+    heldout_log_prob = tf.reduce_mean(sum_log_prob)
+    print(' ... Held-out nats: {:.3f}'.format(heldout_log_prob))
+    return probs, heldout_log_prob
+
+
+def image_uncertainty(mc_s_prob):
+    # using entropy based method calculate uncertainty for each image
+    # mc_s_prob -> (# mc, # batches * batch_size, # classes)
+    # mean over the mc samples (# batches * batch_size, # classes)
+    mean_probs = np.mean(mc_s_prob, axis=0)
+    # log_prob over classes (# batches * batch_size)
+    log_prob = -np.sum((mean_probs * np.log(mean_probs + np.finfo(float).eps)), axis=1)
+
+    epistemic_all = []
+    for i in range(mc_s_prob.shape[1]): # for each image
+        # output epistemic uncertainty for each image -> [# classes, # classes] matrix
+        aleatoric, epistemic = decompose_uncertainties(mc_s_prob[:,i,:])
+        # summarize the matrix 
+        epistemic_all.append(sum(np.diag(epistemic)))
+    epistemic_all = np.asarray(epistemic_all)
+    return log_prob, epistemic_all
+
+
+# ---------------------------- Visualization ---------------------------------------
 
 def plot_heldout_prediction(images, labels, probs, fname, n=5, title=''):
     """Save a PNG plot visualizing posterior uncertainty on heldout data.
@@ -116,16 +148,6 @@ def plot_heldout_prediction(images, labels, probs, fname, n=5, title=''):
     print('saved {}'.format(fname))
 
 
-def compute_probs(model, images, num_monte_carlo=30):
-    probs = tf.stack([tf.keras.layers.Activation('softmax')(model(images)) for _ in range(num_monte_carlo)], axis=0)
-    mean_probs = tf.reduce_mean(probs, axis=0)
-    eps = tf.convert_to_tensor(np.finfo(float).eps, dtype=tf.float32)
-    sum_log_prob = -tf.reduce_sum(tf.math.multiply(mean_probs, tf.math.log(mean_probs + eps)), axis=1)
-    heldout_log_prob = tf.reduce_mean(sum_log_prob)
-    print(' ... Held-out nats: {:.3f}'.format(heldout_log_prob))
-    return probs, heldout_log_prob
-
-
 def plot_weight_posteriors(names, qm_vals, qs_vals, fname):
     """Save a PNG plot with histograms of weight means and stddevs.
     Args:
@@ -158,6 +180,40 @@ def plot_weight_posteriors(names, qm_vals, qs_vals, fname):
     canvas.print_figure(fname, format='png')
     print('saved {}'.format(fname))
 
+
+# ---------------------------- ROC Curves ---------------------------------------
+
+
+def area_under_curves(safe, risky, inverse=False):
+    labels = np.zeros((safe.shape[0] + risky.shape[0]), dtype=np.int32)
+    if inverse:
+        labels[safe.shape[0]:] += 1
+    else:
+        labels[:safe.shape[0]] += 1
+    examples = np.squeeze(np.vstack((safe, risky)))
+    aupr = round(100 * sk.average_precision_score(labels, examples), 2)
+    auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
+    return aupr, auroc
+
+
+def roc_pr_curves(safe, risky, inverse=False):
+    labels = np.zeros((safe.shape[0] + risky.shape[0]), dtype=np.int32)
+    if inverse:
+        labels[safe.shape[0]:] += 1
+    else:
+        labels[:safe.shape[0]] += 1
+    # examples = np.squeeze(np.vstack((safe, risky)))
+    examples = np.concatenate((safe, risky))
+    
+    auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
+    fpr, tpr, thresholds = sk.roc_curve(labels, examples)
+    # aupr = round(100 * sk.average_precision_score(labels, examples), 2)
+    # precision, recall, _ = sk.precision_recall_curve(labels, examples)
+    # return fpr, tpr, precision, recall, aupr, auroc
+    return fpr, tpr, thresholds, auroc
+
+
+# ---------------------------- Distinction ---------------------------------------
 
 # right wrong distinction is for in distribution classification, to see how good the 
 # classifier perform in in distribution examples.
@@ -220,6 +276,8 @@ def right_wrong_distinction(test_iterator, model, num_test_steps, fname):
 # in out distinction is for out distribution classifier
 def in_out_distinction(in_iter, out_iter, model, num_test_steps, ood_name, fname):
     softmax_prob_in, softmax_prob_out, norm_base_rate, abnorm_base_rate = [], [], [], []
+    class_count = [0 for m in params.brand_models]
+    total = 0
     for step in trange(num_test_steps):
         in_images, _ = in_iter.get_next()
         out_images, _ = out_iter.get_next()
@@ -229,7 +287,12 @@ def in_out_distinction(in_iter, out_iter, model, num_test_steps, ood_name, fname
         softmax_out = tf.nn.softmax(logits_out)
         s_prob_in = np.amax(softmax_in, axis=1, keepdims=True)
         s_prob_out = np.amax(softmax_out, axis=1, keepdims=True)
-
+        
+        for logit in logits_out:
+            y_pred = tf.math.argmax(logit)
+            class_count[y_pred] += 1
+            total += 1
+        
         norm_base_rate.append(in_images.shape[0] / 
                              (in_images.shape[0] + out_images.shape[0]))
         abnorm_base_rate.append(out_images.shape[0] / 
@@ -261,18 +324,24 @@ def in_out_distinction(in_iter, out_iter, model, num_test_steps, ood_name, fname
         aupr, auroc = area_under_curves(-np.asarray(softmax_prob_in), -np.asarray(softmax_prob_out), True)
         f.write('AUPR (%): {}\n'.format(aupr))
         f.write('AUROC (%): {}\n'.format(auroc))
-
+        f.write("{} out-dist images\n".format(total))
+        for i in range(len(params.brand_models)):
+            f.write("{:.3%} out-dist images are classified as {}\n".format(
+                    class_count[i] / total, 
+                    params.brand_models[i]))
     return softmax_prob_in, softmax_prob_out
 
 def mc_in_out_distinction(in_iter, out_iter, model, 
                           num_test_steps, 
                           num_monte_carlo, 
                           ood_name, fname):
-    mc_s_prob_in = []
-    mc_s_prob_out = []
+
+    mc_s_prob_in, mc_s_prob_out = [], []
+    class_count = [0 for m in params.brand_models]
+    total = 0
     for i in trange(num_monte_carlo):
         softmax_prob_in, softmax_prob_out = [], []
-        for step in range(num_test_steps):
+        for step in range(num_test_steps): 
             in_images, _ = in_iter.get_next()
             out_images, _ = out_iter.get_next()
             logits_in = model(in_images)
@@ -281,15 +350,21 @@ def mc_in_out_distinction(in_iter, out_iter, model,
             s_prob_out = tf.nn.softmax(logits_out)
             # all the softmax output in one monte carlo
             # sample store in softmax_prob_in/out
-            # (num_test_steps, # test_samples, # classes)
+            # (# batches * batch_size, # classes)
             softmax_prob_in.extend(s_prob_in)
             softmax_prob_out.extend(s_prob_out)
-        # (# mc, # test_steps, # test_samples, # classes)
+
+            for logit in logits_out:
+                y_pred = tf.math.argmax(logit)
+                class_count[y_pred] += 1
+                total += 1
+        # (# mc, # batches * batch_size, # classes)
         mc_s_prob_in.append(softmax_prob_in)
         mc_s_prob_out.append(softmax_prob_out)
 
     mc_s_prob_in = np.asarray(mc_s_prob_in)
     mc_s_prob_out = np.asarray(mc_s_prob_out)
+    # log_prob / epistemic -> (# batches * batch_size)
     in_log_prob, in_epistemic_all = image_uncertainty(mc_s_prob_in)
     out_log_prob, out_epistemic_all = image_uncertainty(mc_s_prob_out)
     log_prob_unseen = [in_log_prob, out_log_prob]
@@ -309,46 +384,42 @@ def mc_in_out_distinction(in_iter, out_iter, model,
         f.write('Out-dist epistemic uncertainty(mean, std):\n')
         f.write('{:.4f}, {:.4f}\n'.format(np.mean(out_epistemic_all),
                                         np.std(out_epistemic_all)))
-    
+        f.write("{} out-dist images\n".format(int(total / num_monte_carlo)))
+        for i in range(len(params.brand_models)):
+            f.write("{:.3%} out-dist images are classified as {}\n".format(
+                    class_count[i] / total, 
+                    params.brand_models[i]))
     return log_prob_unseen, epistemic_unseen
 
-def area_under_curves(safe, risky, inverse=False):
-    labels = np.zeros((safe.shape[0] + risky.shape[0]), dtype=np.int32)
-    if inverse:
-        labels[safe.shape[0]:] += 1
-    else:
-        labels[:safe.shape[0]] += 1
-    examples = np.squeeze(np.vstack((safe, risky)))
-    aupr = round(100 * sk.average_precision_score(labels, examples), 2)
-    auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
-    return aupr, auroc
 
-def roc_pr_curves(safe, risky, inverse=False):
-    labels = np.zeros((safe.shape[0] + risky.shape[0]), dtype=np.int32)
-    if inverse:
-        labels[safe.shape[0]:] += 1
-    else:
-        labels[:safe.shape[0]] += 1
-    # examples = np.squeeze(np.vstack((safe, risky)))
-    examples = np.concatenate((safe, risky))
-    
-    auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
-    fpr, tpr, _ = sk.roc_curve(labels, examples)
-    aupr = round(100 * sk.average_precision_score(labels, examples), 2)
-    precision, recall, _ = sk.precision_recall_curve(labels, examples)
+# ---------------------------- Histogram ---------------------------------------
 
-    return fpr, tpr, precision, recall, aupr, auroc
+def visualize_entropy_histogram(data, other_data_dicts, max_entropy, dict_key, data_name, save_path):
+    """
+    Visualization of the entropy the datasets.
+    Parameters:
+        data (list):
+        other_data_dicts (dictionary of dictionaries): Dictionary of key-value pairs per dataset
+        dict_key (str): Dictionary key to plot
+        data_name (str): Original trained dataset's name.
+        save_path (str): Saving path.
+    """
+    data = [x for x in data]
 
-def image_uncertainty(mc_s_prob):
-    # using entropy based method calculate uncertainty for each image
-    mean_probs = np.mean(mc_s_prob, axis=0)
-    log_prob = -np.sum((mean_probs * np.log(mean_probs + np.finfo(float).eps)), axis=1)
+    plt.figure(figsize=(20, 20))
+    plt.hist(data, label=data_name, alpha=1.0, bins=25, color=colors[0])
 
-    epistemic_all = []
-    for i in range(mc_s_prob.shape[1]):
-        # output epistemic uncertainty for each image -> [7, 7] matrix
-        aleatoric, epistemic = decompose_uncertainties(mc_s_prob[:,i,:])
-        # summarize the matrix 
-        epistemic_all.append(sum(np.diag(epistemic)))
-    epistemic_all = np.asarray(epistemic_all)
-    return log_prob, epistemic_all
+    c = 0
+    for other_data_name, other_data_dict in other_data_dicts.items():
+        other_data = [x for x in other_data_dict[dict_key]]
+        plt.hist(other_data, label=other_data_name, alpha=0.5, bins=25, color=colors[c])
+        c += 1
+
+    plt.title("Dataset classification entropy", fontsize=title_font_size)
+    plt.xlabel("Classification entropy", fontsize=axes_font_size)
+    plt.ylabel("Number of images", fontsize=axes_font_size)
+    plt.legend(loc=0)
+    plt.xlim(left=-0.0, right=max_entropy)
+    plt.savefig(os.path.join(save_path, data_name + '_' + ",".join(list(other_data_dicts.keys()))
+                             + '_classification_entropies.png'),
+                bbox_inches='tight')

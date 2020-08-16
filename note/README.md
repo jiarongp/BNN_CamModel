@@ -212,7 +212,12 @@ About aleatoric and epistemic uncertainty
 # Week 10
 Nikon_D7000_r0bf7f938t.TIF is corrupted.
 
-
+- [ ] a approach to detect the ood sample is to use generative model to capture the distribution of data. use the captured distribution to distinguish ood samples.
+  - [Do Deep Generative Model Know What They Don't Know?](https://arxiv.org/abs/1810.09136)
+- [ ] plot histogram of softmax output and entroupy in one plot for different dataset.
+- [ ] increas the option to test the model as ood database (is mnist ok?)
+- [ ] A thought on the application of uncertainty. Is it possible to incoporate uncertainty in to training? First train the model on BNN, and if in the training the model output high uncertainty during the validation, we can only focus on these examples and if the model has low uncertainty, we could reduce the samples of the corresponding class. It would reduce the amount of training samples that we need. Is it possible? (BNN version of active learning?)
+  - the softmax uncertainty is already enough, right?
 
 
 ## Note

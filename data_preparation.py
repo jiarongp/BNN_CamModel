@@ -13,19 +13,23 @@ from skimage.util.shape import view_as_blocks
 from skimage import io
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
-def collect_dataset(data, images_dir, brand_models, download=False):
+def collect_dataset(data, images_dir, brand_models):
     """Download data from the input csv to specific directory
     Args:
         data: a csv file storing the dataset with filename, model, brand and etc.
         images_dir: target root directory for the downloaded images.
         brand_models: the brand_model name of the target images.
-        download: if your are sure the data are already there, just use False.
     Return:
         path_list: a list of paths of images. For example: 'image_dir/brand_model/filname.jpg'
     """
     csv_rows = []
     path_list = []
     dirs = [os.path.join(images_dir, d) for d in brand_models]
+
+    download = False
+    if not os.path.exists(images_dir):
+        download = True
+        
     for path in dirs:
         if not os.path.exists(path):
             os.makedirs(path)
@@ -79,14 +83,14 @@ def collect_dataset(data, images_dir, brand_models, download=False):
     return path_list
 
 
-def split_dataset(img_list, brand_models, seed=42):
+def split_dataset(img_list, seed=42):
     """Split dataset into train, validation and test
     Args:
         img_list: the dataset need to be split, which is a list of paths of images
         seed: random seed for split.
     Return:
-        split_ds: a list has shape [# of models, [# of train, # of val, # of test]], contains the 
-                  full relative paths of images.
+        split_ds: a list has shape [# of models, [# of train, # of val, # of test]], 
+                  contains the full relative paths of images.
     """
     split_ds = []
     if params.even_database:
@@ -122,7 +126,7 @@ def split_dataset(img_list, brand_models, seed=42):
         val_list = img_list[num_train:(num_train + num_val)]
         test_list = img_list[(num_train + num_val):]
         # print out the split information
-        for model in brand_models:
+        for model in params.brand_models:
             train = fnmatch.filter(train_list, '*' + model + '*')
             logging.info("{} in training set: {}.".format(model, len(train)))
             val = fnmatch.filter(val_list, '*' + model + '*')
@@ -130,6 +134,7 @@ def split_dataset(img_list, brand_models, seed=42):
             test = fnmatch.filter(test_list, '*' + model + '*')
             logging.info("{} in test set: {}.\n".format(model, len(test)))
             split_ds.append([train, val, test])
+
     return split_ds
 
 
@@ -160,6 +165,7 @@ def patch(path, data_id, parent_dir):
     Args:
         path: paths for images needed to be split into patches
         data_id: one of ['train', 'val', 'test']
+        parent_dir: the parent directory storing the patches
     """
     imgs_list = []
     for img_path in path:
@@ -178,6 +184,7 @@ def extract(args):
     Args:
         data_id: dataset the image belongs to, 'train', 'val' or 'test'
         img_path: full paths of the source images
+        parent_dir: the parent directory storing the patches
     Return:
         output_rel_paths: the paths of extracted patches. For example:
                           'train/brand_model/filename_idx.png'
@@ -185,13 +192,10 @@ def extract(args):
     # 'train/Agfa_DC-504/Agfa_DC-504_0_1_00.png' for example,
     # last part is the patch idex.
     # Use PNG for losslessly storing images
-
     output_rel_paths = [os.path.join(args['data_id'],
                         os.path.split(os.path.dirname(args['img_path']))[-1],
                         os.path.splitext(os.path.split(args['img_path'])[-1])[0]+'_'+'{:02}'
-                        .format(patch_idx)
-                        + ('.png' if params.database == 'dresden' 
-                           else '.TIF'))
+                        .format(patch_idx) + '.png')
                         for patch_idx in range(params.patch_num)]
     
     read_img = False
@@ -216,15 +220,22 @@ def extract(args):
     # return output_rel_paths
 
 
-def collect_split_extract(parent_dir, download_images=False):
+def collect_split_extract(parent_dir):
+    """collect database from internet, split into different dataset, 
+    then extract them into patches.
+    Args:
+        parent_dir: the parent directory storing the patches
+    Return:
+        output_rel_paths: the paths of extracted patches. For example:
+                          'train/brand_model/filename_idx.png'
+    """   
     # collect data if not downloaded
     data = pd.read_csv(params.ds_csv)
     if params.database=='dresden':
         data = data[([m in params.models for m in data['model']])]
     image_paths = collect_dataset(data, 
                                   params.ds_image_dir,
-                                  params.brand_models,
-                                  download=download_images)
+                                  params.brand_models)
 
     # split dataset in train, val and test
     split_ds = split_dataset(image_paths, 
@@ -237,7 +248,7 @@ def collect_split_extract(parent_dir, download_images=False):
         patch(path=split_ds[i][2], data_id='test', parent_dir=parent_dir)
         logging.info("... Done\n")
 
-def collect_unseen(download):
+def collect_unseen():
     # collect odd data
     data = pd.read_csv(params.ds_csv)
     if params.database == 'dresden':
@@ -248,8 +259,7 @@ def collect_unseen(download):
 
     image_paths = collect_dataset(data, 
                                  params.ds_image_dir,
-                                 params.unseen_brand_models,
-                                 download=download)
+                                 params.unseen_brand_models)
 
     patch(path=image_paths, data_id='test', parent_dir=params.unseen_dir)
     print("... Done\n")
@@ -259,15 +269,15 @@ def parse_image(img_path, post_processing=None):
     matches = tf.stack([tf.equal(label, s) for s in params.brand_models], axis=-1)
     onehot_label = tf.cast(matches, tf.float32)
 
-    # load the raw data from the file as a string
-    if params.database == 'RAISE':
-        # image = [io.imread(path.numpy().decode('utf8')) for path in img_path]
-        # image = tf.stack(image, axis=0)
-        image = io.imread(img_path.numpy().decode('utf8'))
-        image = image[..., None]
-    else:
-        image = tf.io.read_file(img_path)
-        image = tf.image.decode_png(image)
+    # # load the raw data from the file as a string
+    # if params.database == 'RAISE':
+    #     # image = [io.imread(path.numpy().decode('utf8')) for path in img_path]
+    #     # image = tf.stack(image, axis=0)
+    #     image = io.imread(img_path.numpy().decode('utf8'))
+    #     image = image[..., None]
+    # else:
+    image = tf.io.read_file(img_path)
+    image = tf.image.decode_png(image)
 
     # image covert to tf.float32 and /255.
     image = tf.image.convert_image_dtype(image, tf.float32)
@@ -294,7 +304,7 @@ def build_dataset(data_id, class_imbalance=False):
     # zip image and label
     # The Dataset.map(f) transformation produces a new dataset by applying a 
     # given function f to each element of the input dataset.
-    fn = lambda x: tf.py_function(parse_image, inp=[x], Tout=[tf.float32, tf.float32])
+    # fn = lambda x: tf.py_function(parse_image, inp=[x], Tout=[tf.float32, tf.float32])
     if data_id == 'train':
         # use oversampling to counteract the class imbalance
         # https://www.tensorflow.org/tutorials/structured_data/imbalanced_data#oversampling
@@ -306,9 +316,10 @@ def build_dataset(data_id, class_imbalance=False):
                 class_datasets.append(class_dataset)
             # uniformly samples in the class_datasets
             dataset = (tf.data.experimental.sample_from_datasets(class_datasets)
-                       .map(parse_image if params.database == 'dresden'
-                            else fn, num_parallel_calls=AUTOTUNE 
-                            if params.database == 'dresden' else None)
+                    #    .map(parse_image if params.database == 'dresden'
+                    #         else fn, num_parallel_calls=AUTOTUNE 
+                    #         if params.database == 'dresden' else None)
+                       .map(parse_image, num_parallel_calls=AUTOTUNE)
                        .batch(params.BATCH_SIZE)
                        .prefetch(buffer_size=AUTOTUNE))  # make sure you always have one batch ready to serve
             
@@ -316,26 +327,29 @@ def build_dataset(data_id, class_imbalance=False):
             dataset = (tf.data.Dataset.list_files(params.patch_dir + '/train/*/*')
                        .repeat()
                        .shuffle(buffer_size=1000)  # whole dataset into the buffer ensures good shuffling
-                       .map(parse_image if params.database == 'dresden'
-                            else fn, num_parallel_calls=AUTOTUNE 
-                            if params.database == 'dresden' else None)
+                    #    .map(parse_image if params.database == 'dresden'
+                    #         else fn, num_parallel_calls=AUTOTUNE 
+                    #         if params.database == 'dresden' else None)
+                       .map(parse_image, num_parallel_calls=AUTOTUNE)
                        .batch(params.BATCH_SIZE)
                        .prefetch(buffer_size=AUTOTUNE))
 
     elif data_id == 'val':
         dataset = (tf.data.Dataset.list_files(params.patch_dir + '/val/*/*')
                    .repeat()
-                   .map(parse_image if params.database == 'dresden'
-                        else fn, num_parallel_calls=AUTOTUNE 
-                        if params.database == 'dresden' else None)
+                #    .map(parse_image if params.database == 'dresden'
+                #         else fn, num_parallel_calls=AUTOTUNE 
+                #         if params.database == 'dresden' else None)
+                   .map(parse_image, num_parallel_calls=AUTOTUNE)
                    .batch(params.BATCH_SIZE)
                    .prefetch(buffer_size=AUTOTUNE))
 
     elif data_id == 'test':
         dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
-                   .map(parse_image if params.database == 'dresden'
-                        else fn, num_parallel_calls=AUTOTUNE 
-                        if params.database == 'dresden' else None)
+                #    .map(parse_image if params.database == 'dresden'
+                #         else fn, num_parallel_calls=AUTOTUNE 
+                #         if params.database == 'dresden' else None)
+                   .map(parse_image, num_parallel_calls=AUTOTUNE)
                    .batch(params.BATCH_SIZE)
                    .prefetch(buffer_size=AUTOTUNE))
 
