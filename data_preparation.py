@@ -10,17 +10,18 @@ import tensorflow_addons as tfa
 from tqdm import tqdm, trange
 # from multiprocessing import Pool
 from skimage.util.shape import view_as_blocks
-from skimage import io
+from skimage.util import random_noise
+from skimage import io, filters, img_as_ubyte
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 def collect_dataset(data, images_dir, brand_models):
-    """Download data from the input csv to specific directory
+    """Download data from the input csv to specific directory.
     Args:
         data: a csv file storing the dataset with filename, model, brand and etc.
         images_dir: target root directory for the downloaded images.
         brand_models: the brand_model name of the target images.
     Return:
-        path_list: a list of paths of images. For example: 'image_dir/brand_model/filname.jpg'
+        path_list: a list of paths of images. For example: 'image_dir/brand_model/filname.jpg'.
     """
     csv_rows = []
     path_list = []
@@ -84,9 +85,9 @@ def collect_dataset(data, images_dir, brand_models):
 
 
 def split_dataset(img_list, seed=42):
-    """Split dataset into train, validation and test
+    """Split dataset into train, validation and test.
     Args:
-        img_list: the dataset need to be split, which is a list of paths of images
+        img_list: the dataset need to be split, which is a list of paths of images.
         seed: random seed for split.
     Return:
         split_ds: a list has shape [# of models, [# of train, # of val, # of test]], 
@@ -161,11 +162,11 @@ def patchify(img_path, patch_span=params.patch_span):
 
 
 def patch(path, data_id, parent_dir):
-    """call the extract function to extract patches from full-sized image
+    """call the extract function to extract patches from full-sized image.
     Args:
-        path: paths for images needed to be split into patches
-        data_id: one of ['train', 'val', 'test']
-        parent_dir: the parent directory storing the patches
+        path: paths for images needed to be split into patches.
+        data_id: one of ['train', 'val', 'test'].
+        parent_dir: the parent directory storing the patches.
     """
     imgs_list = []
     for img_path in path:
@@ -180,14 +181,14 @@ def patch(path, data_id, parent_dir):
 
 
 def extract(args):
-    """extract patches from full-sized image
+    """extract patches from full-sized image.
     Args:
-        data_id: dataset the image belongs to, 'train', 'val' or 'test'
-        img_path: full paths of the source images
-        parent_dir: the parent directory storing the patches
+        data_id: dataset the image belongs to, 'train', 'val' or 'test'.
+        img_path: full paths of the source images.
+        parent_dir: the parent directory storing the patches.
     Return:
         output_rel_paths: the paths of extracted patches. For example:
-                          'train/brand_model/filename_idx.png'
+                          'train/brand_model/filename_idx.png'.
     """
     # 'train/Agfa_DC-504/Agfa_DC-504_0_1_00.png' for example,
     # last part is the patch idex.
@@ -249,12 +250,17 @@ def collect_split_extract(parent_dir):
         logging.info("... Done\n")
 
 def collect_unseen():
+    """collect unseen models images from the internet.
+    """
+ 
     # collect odd data
     data = pd.read_csv(params.ds_csv)
     if params.database == 'dresden':
         data = data[([m in params.unseen_models for m in data['model']])]
     elif params.database == 'RAISE':
-        device = [' '.join([b, m]) for (b, m) in zip(params.unseen_brands, params.unseen_models)]
+        device = [' '.join([b, m]) for (b, m) in 
+                  zip(params.unseen_brands, 
+                      params.unseen_models)]
         data = data[([d in device for d in data['Device']])]
 
     image_paths = collect_dataset(data, 
@@ -264,23 +270,27 @@ def collect_unseen():
     patch(path=image_paths, data_id='test', parent_dir=params.unseen_dir)
     print("... Done\n")
 
-def parse_image(img_path, post_processing=None):
-    label = tf.strings.split(img_path, os.path.sep)[-2]
-    matches = tf.stack([tf.equal(label, s) for s in params.brand_models], axis=-1)
-    onehot_label = tf.cast(matches, tf.float32)
 
-    # # load the raw data from the file as a string
-    # if params.database == 'RAISE':
-    #     # image = [io.imread(path.numpy().decode('utf8')) for path in img_path]
-    #     # image = tf.stack(image, axis=0)
-    #     image = io.imread(img_path.numpy().decode('utf8'))
-    #     image = image[..., None]
-    # else:
+def parse_image(img_path, post_processing=None):
+    """read label and covert to onehot vector, read images from
+    paths, adding post-process to images(optional), convert to
+    to the range 0-255.
+    Args:
+        img_path: full paths of the source images.
+        post_process: 'jpeg', covert to jpeg image from .png;
+                      'blur', add gaussian blur;
+                      'noise', add gaussian noise.
+    Return:
+        image: decoded images.
+        onehot_label: onehot label.
+    """ 
+    label = tf.strings.split(img_path, os.path.sep)[-2]
+    matches = tf.stack([tf.equal(label, s) 
+                        for s in params.brand_models], 
+                        axis=-1)
+    onehot_label = tf.cast(matches, tf.float32)
     image = tf.io.read_file(img_path)
     image = tf.image.decode_png(image)
-
-    # image covert to tf.float32 and /255.
-    image = tf.image.convert_image_dtype(image, tf.float32)
 
     if post_processing == 'jpeg':
         image = tf.image.adjust_jpeg_quality(image, 70)
@@ -294,10 +304,68 @@ def parse_image(img_path, post_processing=None):
                                  mean=0.0, stddev=(2)/(255),
                                  dtype=tf.float32)
         image += noise
-    
+
+    # image covert to tf.float32 and /255.
+    image = tf.image.convert_image_dtype(image, tf.float32)
     image = tf.clip_by_value(image, 0.0, 1.0)
-    # img = tf.image.resize(img, [params.IMG_HEIGHT, params.IMG_WIDTH])
+    # image = tf.image.resize(image, [params.IMG_HEIGHT, params.IMG_WIDTH])
     return image, onehot_label
+
+
+def post_processing(image_path, post_processing):
+    """offline implementation for post processing. The offline version 
+    images have different value compared to the online version (offline
+    images are all integer values).offline is closer to real world case 
+    for camera model identification. (analyze a post processed image not 
+    read a image then adding post process.)
+    Args:
+        img_path: full paths of the source images.
+        post_process: 'jpeg', covert to jpeg image from .png;
+                      'blur', add gaussian blur;
+                      'noise', add gaussian noise.
+    Return:
+        target_path: path of the saved post process images.
+    """
+    image_name = [os.path.split(path)[-1] for path in image_path]
+    target_dir = os.path.join(params.image_root, 
+                    '_'.join([params.database, post_processing]))
+    target_path = [os.path.join(params.image_root, 
+                    '_'.join([params.database, post_processing]), 
+                    name) for name in image_name]
+    if not os.path.exists(target_dir):
+        os.mkdir(target_dir)
+
+    if post_processing == 'jpeg':
+        target_path = [os.path.splitext(path)[0] + '.jpg' 
+                       for path in target_path]
+        for im_path, c_path in zip(image_path, target_path):
+            if not os.path.exists(c_path):
+                im = io.imread(im_path)
+                io.imsave(c_path, im, plugins='pil', 
+                          quality=70, check_contrast=False)
+    # Adding Gaussian Noise
+    elif post_processing == 'noise':
+        mean = 0
+        sigma = 2/255
+        height, width = (256, 256)
+        for im_path, n_path in zip(image_path, target_path):
+            if not os.path.exists(n_path): 
+                image = io.imread(im_path)
+                noisy = random_noise(image, mode='gaussian', 
+                                     mean=0, var=sigma**2)
+                io.imsave(n_path, img_as_ubyte(noisy), 
+                          check_contrast=False)
+    # Adding Gaussian Blur
+    elif post_processing == 'blur':
+        for im_path, b_path in zip(image_path, target_path):
+            if not os.path.exists(b_path): 
+                image = io.imread(im_path)
+                blur = filters.gaussian(image, sigma=1.1, 
+                                        truncate=2.0)
+                io.imsave(b_path, img_as_ubyte(blur), 
+                          check_contrast=False)
+
+    return target_path
 
 
 def build_dataset(data_id, class_imbalance=False):

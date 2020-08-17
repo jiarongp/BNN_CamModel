@@ -7,9 +7,18 @@ import matplotlib
 import sklearn.metrics as sk
 from tqdm import trange
 matplotlib.use('Agg')
+plt = matplotlib.pyplot
 from matplotlib import figure
 from matplotlib.backends import backend_agg
 
+title_font_size = 55
+axes_font_size =55
+legend_font_size = 50
+ticks_font_size = 50
+color = sns.color_palette("Set2")
+ 
+
+# ---------------------------- Logging ---------------------------------------
 
 def set_logger(log_path):
     """Sets the logger to log info in terminal and file `log_path`.
@@ -36,8 +45,9 @@ def set_logger(log_path):
         stream_handler.setFormatter(logging.Formatter('%(message)s'))
         logger.addHandler(stream_handler)
 
+
 # ---------------------------- Uncertainty ---------------------------------------
-        
+
 def decompose_uncertainties(p_hat):
     """
     Given a number of draws, decompose the predictive variance into aleatoric and epistemic uncertainties.
@@ -183,13 +193,13 @@ def plot_weight_posteriors(names, qm_vals, qs_vals, fname):
 
 # ---------------------------- ROC Curves ---------------------------------------
 
-
 def area_under_curves(safe, risky, inverse=False):
     labels = np.zeros((safe.shape[0] + risky.shape[0]), dtype=np.int32)
+    # By default, the ood samples has the positive label
     if inverse:
-        labels[safe.shape[0]:] += 1
-    else:
         labels[:safe.shape[0]] += 1
+    else:
+        labels[safe.shape[0]:] += 1
     examples = np.squeeze(np.vstack((safe, risky)))
     aupr = round(100 * sk.average_precision_score(labels, examples), 2)
     auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
@@ -199,9 +209,9 @@ def area_under_curves(safe, risky, inverse=False):
 def roc_pr_curves(safe, risky, inverse=False):
     labels = np.zeros((safe.shape[0] + risky.shape[0]), dtype=np.int32)
     if inverse:
-        labels[safe.shape[0]:] += 1
-    else:
         labels[:safe.shape[0]] += 1
+    else:
+        labels[safe.shape[0]:] += 1
     # examples = np.squeeze(np.vstack((safe, risky)))
     examples = np.concatenate((safe, risky))
     
@@ -219,10 +229,9 @@ def roc_pr_curves(safe, risky, inverse=False):
 # classifier perform in in distribution examples.
 def right_wrong_distinction(test_iterator, model, num_test_steps, fname):
     softmax_prob_all, softmax_prob_right, softmax_prob_wrong, accuracy = [], [], [], []
+    print("... Start right wrong distinction")
     for step in trange(num_test_steps):
         images, onehot_labels = test_iterator.get_next()
-        # the model that I import has softmax already as last layer
-        
         logits = model(images)
         softmax_all = tf.nn.softmax(logits)
         labels = np.argmax(onehot_labels, axis=1)
@@ -246,6 +255,9 @@ def right_wrong_distinction(test_iterator, model, num_test_steps, fname):
     accuracy = np.mean(accuracy)
     err = 100 - accuracy
 
+    softmax_prob_right = np.asarray(softmax_prob_right)
+    softmax_prob_wrong = np.asarray(softmax_prob_wrong)
+    
     with open(fname, 'a') as f:
         f.write("Right Wrong Distinction\n")
         f.write("[SUCCESS DETECTION]\n")
@@ -261,45 +273,93 @@ def right_wrong_distinction(test_iterator, model, num_test_steps, fname):
         f.write('Success base rate (%): {}, ({} / {})\n'.format(
                 round(accuracy, 2), len(softmax_prob_right), len(softmax_prob_all)))
         f.write('Prediction Prob: Right/Wrong classification distinction\n')
-        aupr, auroc = area_under_curves(np.asarray(softmax_prob_right), np.asarray(softmax_prob_wrong))
+        aupr, auroc = area_under_curves(softmax_prob_right, softmax_prob_wrong, True)
         f.write('AUPR (%): {}\n'.format(aupr))
         f.write('AUROC (%): {}\n'.format(auroc))
         f.write('[ERROR Detection]\n')
         f.write('Prediction Prob: Right/Wrong classification distinction\n')
-        aupr, auroc = area_under_curves(-np.asarray(softmax_prob_right), -np.asarray(softmax_prob_wrong), True)
+        aupr, auroc = area_under_curves(-softmax_prob_right, -softmax_prob_wrong)
         f.write('AUPR (%): {}\n'.format(aupr))
         f.write('AUROC (%): {}\n'.format(auroc))
 
     return softmax_prob_right, softmax_prob_wrong
 
 
-# in out distinction is for out distribution classifier
-def in_out_distinction(in_iter, out_iter, model, num_test_steps, ood_name, fname):
-    softmax_prob_in, softmax_prob_out, norm_base_rate, abnorm_base_rate = [], [], [], []
-    class_count = [0 for m in params.brand_models]
-    total = 0
+def in_stats(in_iter, model, num_test_steps):
+    print('... Start computing in distribution statistics')
+    softmax_prob_in = []
     for step in trange(num_test_steps):
         in_images, _ = in_iter.get_next()
-        out_images, _ = out_iter.get_next()
         logits_in = model(in_images)
-        logits_out = model(out_images)
         softmax_in = tf.nn.softmax(logits_in)
-        softmax_out = tf.nn.softmax(logits_out)
         s_prob_in = np.amax(softmax_in, axis=1, keepdims=True)
+        softmax_prob_in.extend(s_prob_in)
+    softmax_prob_in = np.asarray(softmax_prob_in)
+
+    return softmax_prob_in
+
+
+# in out distinction is for out distribution classifier
+def out_stats(out_iter, model, num_test_steps):
+    class_count = [0 for m in params.brand_models]
+    print('... Start computing out of distribution statistics')
+    softmax_prob_out = []
+    for step in trange(num_test_steps):
+        out_images, _ = out_iter.get_next()
+        logits_out = model(out_images)
+        softmax_out = tf.nn.softmax(logits_out)
         s_prob_out = np.amax(softmax_out, axis=1, keepdims=True)
         
         for logit in logits_out:
             y_pred = tf.math.argmax(logit)
             class_count[y_pred] += 1
-            total += 1
-        
-        norm_base_rate.append(in_images.shape[0] / 
-                             (in_images.shape[0] + out_images.shape[0]))
-        abnorm_base_rate.append(out_images.shape[0] / 
-                               (in_images.shape[0] + out_images.shape[0]))
-        softmax_prob_in.extend(s_prob_in)
         softmax_prob_out.extend(s_prob_out)
+    softmax_prob_out = np.asarray(softmax_prob_out)
 
+    return softmax_prob_out, class_count
+
+
+def mc_in_stats(in_iter, model, num_test_steps, num_monte_carlo):
+    mc_softmax_prob_in = []
+    print('... Start computing in distribution statistics')
+    for i in trange(num_monte_carlo):
+        softmax_prob_in = []
+        for step in range(num_test_steps):
+            in_images, _ = in_iter.get_next()
+            logits_in = model(in_images)
+            softmax_in = tf.nn.softmax(logits_in)
+            softmax_prob_in.extend(softmax_in)
+        mc_softmax_prob_in.append(softmax_prob_in)
+    mc_softmax_prob_in = np.asarray(mc_softmax_prob_in)
+    entropy, epistemic = image_uncertainty(mc_softmax_prob_in)
+
+    return entropy, epistemic
+
+
+# in out distinction is for out distribution classifier
+def mc_out_stats(out_iter, model, num_test_steps, num_monte_carlo):
+    mc_softmax_prob_out = []
+    class_count = [0 for m in params.brand_models]
+    print('... Start computing out of distribution statistics')
+    for i in trange(num_monte_carlo):
+        softmax_prob_out = []
+        for step in range(num_test_steps):
+            out_images, _ = out_iter.get_next()
+            logits_out = model(out_images)
+            softmax_out = tf.nn.softmax(logits_out)
+            for logit in logits_out:
+                y_pred = tf.math.argmax(logit)
+                class_count[y_pred] += 1
+            softmax_prob_out.extend(softmax_out)
+        mc_softmax_prob_out.append(softmax_prob_out)
+    mc_softmax_prob_out = np.asarray(mc_softmax_prob_out)
+    entropy, epistemic = image_uncertainty(mc_softmax_prob_out)
+
+    return entropy, epistemic, class_count
+
+
+def log_in_out(softmax_prob_in, softmax_prob_out, 
+               class_count, ood_name, fname):
     with open(fname, 'a') as f:
         f.write("\nIn Out Distinction\n")
         f.write("[{} anomaly detection]\n".format(ood_name))
@@ -311,88 +371,76 @@ def in_out_distinction(in_iter, out_iter, model, num_test_steps, ood_name, fname
         f.write('{:.4f}, {:.4f}\n'.format(np.mean(softmax_prob_out),
                                          np.std(softmax_prob_out)))
 
+        norm_base_rate = (softmax_prob_in.shape[0] / 
+                         (softmax_prob_in.shape[0] + 
+                          softmax_prob_out.shape[0]))
         f.write('[Normality Detection]\n')
         f.write('Normality base rate (%): {}\n'.format(100 * round(np.mean(norm_base_rate), 2)))
         f.write('Prediction Prob: Normality Detection\n')
-        aupr, auroc = area_under_curves(np.asarray(softmax_prob_in), np.asarray(softmax_prob_out))
+        aupr, auroc = area_under_curves(softmax_prob_in, softmax_prob_out, True)
         f.write('AUPR (%): {}\n'.format(aupr))
         f.write('AUROC (%): {}\n'.format(auroc))
 
+        abnorm_base_rate = (softmax_prob_out.shape[0] / 
+                            (softmax_prob_in.shape[0] + 
+                            softmax_prob_out.shape[0]))
         f.write('[Abnormality Detection]\n')
         f.write('Abnormality base rate (%): {}\n'.format(100 * round(np.mean(abnorm_base_rate), 2)))
         f.write('Prediction Prob: Abnormality Detection\n')
-        aupr, auroc = area_under_curves(-np.asarray(softmax_prob_in), -np.asarray(softmax_prob_out), True)
+        aupr, auroc = area_under_curves(-softmax_prob_in, -softmax_prob_out)
         f.write('AUPR (%): {}\n'.format(aupr))
         f.write('AUROC (%): {}\n'.format(auroc))
+
+        total = softmax_prob_out.shape[0]
         f.write("{} out-dist images\n".format(total))
         for i in range(len(params.brand_models)):
             f.write("{:.3%} out-dist images are classified as {}\n".format(
-                    class_count[i] / total, 
+                    class_count[i] / total,
                     params.brand_models[i]))
-    return softmax_prob_in, softmax_prob_out
 
-def mc_in_out_distinction(in_iter, out_iter, model, 
-                          num_test_steps, 
-                          num_monte_carlo, 
-                          ood_name, fname):
 
-    mc_s_prob_in, mc_s_prob_out = [], []
-    class_count = [0 for m in params.brand_models]
-    total = 0
-    for i in trange(num_monte_carlo):
-        softmax_prob_in, softmax_prob_out = [], []
-        for step in range(num_test_steps): 
-            in_images, _ = in_iter.get_next()
-            out_images, _ = out_iter.get_next()
-            logits_in = model(in_images)
-            logits_out = model(out_images)
-            s_prob_in = tf.nn.softmax(logits_in)
-            s_prob_out = tf.nn.softmax(logits_out)
-            # all the softmax output in one monte carlo
-            # sample store in softmax_prob_in/out
-            # (# batches * batch_size, # classes)
-            softmax_prob_in.extend(s_prob_in)
-            softmax_prob_out.extend(s_prob_out)
-
-            for logit in logits_out:
-                y_pred = tf.math.argmax(logit)
-                class_count[y_pred] += 1
-                total += 1
-        # (# mc, # batches * batch_size, # classes)
-        mc_s_prob_in.append(softmax_prob_in)
-        mc_s_prob_out.append(softmax_prob_out)
-
-    mc_s_prob_in = np.asarray(mc_s_prob_in)
-    mc_s_prob_out = np.asarray(mc_s_prob_out)
-    # log_prob / epistemic -> (# batches * batch_size)
-    in_log_prob, in_epistemic_all = image_uncertainty(mc_s_prob_in)
-    out_log_prob, out_epistemic_all = image_uncertainty(mc_s_prob_out)
-    log_prob_unseen = [in_log_prob, out_log_prob]
-    epistemic_unseen = [in_epistemic_all, out_epistemic_all]
-
+def log_mc_in_out(in_log_prob, out_log_prob, 
+                  in_epistemic, out_epistemic,
+                  class_count,
+                  num_monte_carlo,
+                  ood_name, fname):
     with open(fname, 'a') as f:
         f.write("\n{} In Out Distinction\n".format(ood_name))
         f.write('In-dist log probability (mean, std):\n')
         f.write('{:.4f}, {:.4f}\n'.format(np.mean(in_log_prob),
-                                        np.std(in_log_prob)))
+                                          np.std(in_log_prob)))
         f.write('Out-dist log probability (mean, std):\n')
         f.write('{:.4f}, {:.4f}\n'.format(np.mean(out_log_prob),
-                                        np.std(out_log_prob)))
+                                          np.std(out_log_prob)))
         f.write('In-dist epistemic uncertainty(mean, std):\n')
-        f.write('{:.4f}, {:.4f}\n'.format(np.mean(in_epistemic_all),
-                                        np.std(in_epistemic_all)))
+        f.write('{:.4f}, {:.4f}\n'.format(np.mean(in_epistemic),
+                                          np.std(in_epistemic)))
         f.write('Out-dist epistemic uncertainty(mean, std):\n')
-        f.write('{:.4f}, {:.4f}\n'.format(np.mean(out_epistemic_all),
-                                        np.std(out_epistemic_all)))
+        f.write('{:.4f}, {:.4f}\n'.format(np.mean(out_epistemic),
+                                          np.std(out_epistemic)))
+        total = out_log_prob.shape[0] * num_monte_carlo
         f.write("{} out-dist images\n".format(int(total / num_monte_carlo)))
         for i in range(len(params.brand_models)):
             f.write("{:.3%} out-dist images are classified as {}\n".format(
-                    class_count[i] / total, 
+                    class_count[i] / total,
                     params.brand_models[i]))
-    return log_prob_unseen, epistemic_unseen
 
 
 # ---------------------------- Histogram ---------------------------------------
+
+def vis_hist(data, labels, fname, xlabel):
+    plt.figure(figsize=(20, 20))
+    c = 0
+    for d, l in zip(data, labels):
+        plt.hist(d, label=l, alpha=0.5, bins=20, color=color[c])
+        c += 1
+    plt.title("Dataset classification", fontsize=title_font_size)
+    plt.xlabel("Classification confidence", fontsize=axes_font_size)
+    plt.ylabel("Number of images", fontsize=axes_font_size)
+    plt.legend(loc=0)
+    plt.xlim(left=-0.0, right=1.05)
+    plt.savefig(fname, bbox_inches='tight')
+
 
 def visualize_entropy_histogram(data, other_data_dicts, max_entropy, dict_key, data_name, save_path):
     """

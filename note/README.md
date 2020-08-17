@@ -219,6 +219,7 @@ Nikon_D7000_r0bf7f938t.TIF is corrupted.
 - [ ] A thought on the application of uncertainty. Is it possible to incoporate uncertainty in to training? First train the model on BNN, and if in the training the model output high uncertainty during the validation, we can only focus on these examples and if the model has low uncertainty, we could reduce the samples of the corresponding class. It would reduce the amount of training samples that we need. Is it possible? (BNN version of active learning?)
   - the softmax uncertainty is already enough, right?
 
+The ROC curves looks convex, because the true positive has smaller value than the true negative, as the threshold goes up, the true poitive rate will first small, than goes up to 1.
 
 ## Note
 
@@ -286,6 +287,8 @@ The false positive rate is called the false alarm rate as it summarizes how ofte
 
 The false positive rate is also referred to as the inverted specificity where specificity is the total number of true negatives divided by the sum of the number of true negatives and false positives:
 `Specificity = True Negatives / (True Negatives + False Positives)` where: `False Positive Rate = 1 - Specificity`
+
+![image](https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/ROC_curves.svg/600px-ROC_curves.svg.png)
 
 #### Precision-Recall Curves
 
