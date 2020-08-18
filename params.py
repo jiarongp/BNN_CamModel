@@ -1,7 +1,7 @@
 # 'bnn' / 'vanilla'
-model_type = 'bnn'
+model_type = 'vanilla'
 # 'dresden' / 'RAISE'
-database = 'dresden'
+database = 'RAISE'
 even_database = False
 image_root = 'data/'
 

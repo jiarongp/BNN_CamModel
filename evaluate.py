@@ -18,9 +18,11 @@ def evaluate(log, result_dir, ckpt_dir):
 
     test_size = 0
     train_size = 0
+    val_size = []
     for m in params.brand_models:
         train_size += len(os.listdir(os.path.join(params.patch_dir, 'train', m)))
         test_size += len(os.listdir(os.path.join(params.patch_dir, 'test', m)))
+        val_size.append(len(os.listdir(os.path.join(params.patch_dir, 'val', m))))
     num_test_steps = (test_size + params.BATCH_SIZE - 1) // params.BATCH_SIZE
     # Create the input data pipeline
     logging.info("Creating the dataset...")
@@ -34,7 +36,7 @@ def evaluate(log, result_dir, ckpt_dir):
         model = model_lib.vanilla()
     test_loss = keras.metrics.Mean(name='test_loss')
     test_accuracy = keras.metrics.CategoricalAccuracy(name='test_accuracy')
-    corr_count, total = [[0 for m in params.brand_models] for i in range(2)]
+    corr_count = [0 for m in params.brand_models]
 
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
@@ -48,7 +50,7 @@ def evaluate(log, result_dir, ckpt_dir):
 
     if params.model_type == 'bnn':
         @tf.function
-        def test_step(images, labels):
+        def test_step(images, labels, corr_count):
             with tf.GradientTape() as tape:
                 logits = model(images)
                 nll = (keras.losses.
@@ -58,10 +60,9 @@ def evaluate(log, result_dir, ckpt_dir):
                 kl = sum(model.losses)
                 loss = nll + kl
                 # accuracy for each class
-                for logit, label in zip(labels, logits):
+                for label, logit in zip(labels, logits):
                     y_true = tf.math.argmax(label)
                     y_pred = tf.math.argmax(logit)
-                    total[y_true] += 1
                     if y_true == y_pred:
                         corr_count[y_true] += 1
             test_loss.update_state(loss)  
@@ -69,7 +70,7 @@ def evaluate(log, result_dir, ckpt_dir):
         
         for step in trange(num_test_steps):
             images, labels = test_iterator.get_next()
-            test_step(images, labels)
+            test_step(images, labels, corr_count)
 
             if step % params.print_fig_step == 0:
                 probs, heldout_log_prob = utils.compute_probs(model, images)
@@ -82,28 +83,26 @@ def evaluate(log, result_dir, ckpt_dir):
                                             format(step),
                                     title='mean heldout logprob {:.2f}'
                                     .format(heldout_log_prob))
+
+        names = [layer.name for layer in model.layers
+                if 'flipout' in layer.name]
+        qm_vals = [layer.kernel_posterior.mean() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
+        qs_vals = [layer.kernel_posterior.stddev() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
+
+        utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
+                                    fname=result_dir + 
+                                    "trained_weight.png")
+        logging.info("\nmean of mean is {}, mean variance is {}"
+                    .format(tf.reduce_mean(qm_vals[0]),
+                    tf.reduce_mean(qs_vals[0])))
     
-        for m, c, t in zip(params.models, corr_count, total):
-            logging.info('{} accuracy: {:.3%}'.format(m, c / t))    
-
-            names = [layer.name for layer in model.layers
-                    if 'flipout' in layer.name]
-            qm_vals = [layer.kernel_posterior.mean() 
-                    for layer in model.layers
-                    if 'flipout' in layer.name]
-            qs_vals = [layer.kernel_posterior.stddev() 
-                    for layer in model.layers
-                    if 'flipout' in layer.name]
-
-            utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
-                                        fname=result_dir + 
-                                        "trained_weight.png")
-            logging.info("\nmean of mean is {}, mean variance is {}"
-                        .format(tf.reduce_mean(qm_vals[0]),
-                        tf.reduce_mean(qs_vals[0])))
     else:
         @tf.function
-        def test_step(images, labels):
+        def test_step(images, labels, corr_count):
             with tf.GradientTape() as tape:
                 logits = model(images)
                 loss = keras.losses.categorical_crossentropy(labels,
@@ -111,11 +110,9 @@ def evaluate(log, result_dir, ckpt_dir):
                                                             from_logits=True)
                 softmax = tf.nn.softmax(logits)
             # accuracy for each class
-            for logit, label in zip(labels, logits):
+            for label, label in zip(labels, logits):
                 y_true = tf.math.argmax(label)
                 y_pred = tf.math.argmax(logit)
-                
-                total[y_true] += 1
                 if y_true == y_pred:
                     corr_count[y_true] += 1
             test_loss.update_state(loss)  
@@ -127,8 +124,10 @@ def evaluate(log, result_dir, ckpt_dir):
 
     logging.info('test loss: {:.3f}, test accuracy: {:.3%}\n'.format(test_loss.result(),
                                                         test_accuracy.result()))
-    for m, c, t in zip(params.models, corr_count, total):
-        logging.info('{} accuracy: {:.3%}'.format(m, c / t))
+    n = 0
+    for m, c in zip(params.models, corr_count):
+        logging.info('{} accuracy: {:.3%}'.format(m, c / val_size[n]))
+        n += 1
 
 
 if __name__ == '__main__':

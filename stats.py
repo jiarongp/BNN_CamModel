@@ -5,7 +5,6 @@ import data_preparation as dp
 import utils
 import os
 import model_lib
-# import functools
 from tqdm import trange
 import matplotlib
 matplotlib.use('Agg')
@@ -14,7 +13,6 @@ from matplotlib.backends import backend_agg
 gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 AUTOTUNE = tf.data.experimental.AUTOTUNE
-
 
 # set a fix subset of total test dataset, so that:
 # 1. each class has same size of test images
@@ -36,7 +34,7 @@ def aligned_ds(test_dir, brand_models, num_batches=None, seed=42):
     if num_batches is not None:
         num_test_batches = min(num_test_batches, num_batches)
 
-    for model, images in zip(params.brand_models, image_paths):
+    for images in image_paths:
         np.random.shuffle(images)
         ds.extend(images[0:class_batches * params.BATCH_SIZE])
 
@@ -78,10 +76,10 @@ def stats(ckpt_dir, stats_fig, fname):
                     .prefetch(buffer_size=AUTOTUNE))
     
     unseen_in_dataset = (tf.data.Dataset.from_tensor_slices(ds)
-                                .repeat()
-                                .map(dp.parse_image, num_parallel_calls=AUTOTUNE)
-                                .batch(params.BATCH_SIZE)
-                                .prefetch(buffer_size=AUTOTUNE))
+                            .repeat()
+                            .map(dp.parse_image, num_parallel_calls=AUTOTUNE)
+                            .batch(params.BATCH_SIZE)
+                            .prefetch(buffer_size=AUTOTUNE))
 
     unseen_out_dataset = (tf.data.Dataset.from_tensor_slices(unseen_ds)
                             .repeat()
@@ -168,12 +166,15 @@ def stats(ckpt_dir, stats_fig, fname):
         s_p_io_blur = [s_p_in, s_p_blur]
         s_p_io_noise = [s_p_in, s_p_noise]
 
+        # if the number of unseen batches is smaller or larger, histogram
+        # should be scaled to fit the others.
+        scale = int(num_test_batches / num_unseen_batches)
         labels = ['In Distribution', 'Unseen Models', 'JPEG', 'Blurred', 'Noisy']
-        data = [s_p_in, s_p_unseen, s_p_jpeg, s_p_blur, s_p_noise]
-        softmax_dist = ('results/' + params.database + '/' + 
+        data = [s_p_in, np.repeat(s_p_unseen, scale), s_p_jpeg, s_p_blur, s_p_noise]
+        softmax_fig = ('results/' + params.database + '/' + 
                         params.model_type + '_softmax_dist.png')
-        utils.vis_hist(data, labels, softmax_dist, 
-                       "Softmax Statistics")
+        utils.vis_softmax_hist(data, labels, softmax_fig, 
+                                "Softmax Statistics")
 
         targets = [('right/wrong', s_p_rw),
                     ('in/out, unseen models', s_p_io_unseen),
@@ -217,7 +218,7 @@ def stats(ckpt_dir, stats_fig, fname):
         print("... JPEG Out-of-distribution MC Statistics")
         jpeg_entropy, jpeg_epistemic, jpeg_class_count = \
                         utils.mc_out_stats(jpeg_iter, model, 
-                                           num_unseen_batches,
+                                           num_test_batches,
                                            params.num_monte_carlo)
         utils.log_mc_in_out(in_entropy,
                             jpeg_entropy,
@@ -229,7 +230,7 @@ def stats(ckpt_dir, stats_fig, fname):
         print("... BLUR Out-of-distribution MC Statistics")
         blur_entropy, blur_epistemic, blur_class_count = \
                         utils.mc_out_stats(blur_iter, model, 
-                                           num_unseen_batches,
+                                           num_test_batches,
                                            params.num_monte_carlo)
         utils.log_mc_in_out(in_entropy,
                             blur_entropy,
@@ -241,7 +242,7 @@ def stats(ckpt_dir, stats_fig, fname):
         print("... NOISE Out-of-distribution MC Statistics")
         noise_entropy, noise_epistemic, noise_class_count = \
                         utils.mc_out_stats(noise_iter, model, 
-                                           num_unseen_batches,
+                                           num_test_batches,
                                            params.num_monte_carlo)
         utils.log_mc_in_out(in_entropy,
                             noise_entropy,
@@ -256,16 +257,16 @@ def stats(ckpt_dir, stats_fig, fname):
 
         entropy = [in_entropy, unseen_entropy, jpeg_entropy, 
                     blur_entropy, noise_entropy]
-        entropy_dist = ('results/' + params.database + '/' + 
+        entropy_fig = ('results/' + params.database + '/' + 
                          params.model_type + '_entropy_dist.png')
-        utils.vis_hist(entropy, labels, entropy_dist, 
+        utils.vis_uncertainty_hist(entropy, labels, entropy_fig, 
                        "Entropy")
 
         epistemic = [in_epistemic, unseen_epistemic, jpeg_epistemic,
                      blur_epistemic, noise_epistemic]
-        epistemic_dist = ('results/' + params.database + '/' + 
+        epistemic_fig = ('results/' + params.database + '/' + 
                           params.model_type + '_epistemic_dist.png')
-        utils.vis_hist(epistemic, labels, epistemic_dist, 
+        utils.vis_uncertainty_hist(epistemic, labels, epistemic_fig, 
                        "Epistemic")
 
         targets = [('entropy, unseen models', 
@@ -292,12 +293,24 @@ def stats(ckpt_dir, stats_fig, fname):
     canvas = backend_agg.FigureCanvasAgg(fig)
     fz = 15
 
+    opt_list = []
     for i, (plotname, (safe, risky)) in enumerate(targets):
         if params.model_type == 'bnn':
             ax = fig.add_subplot(2, 4, i+1)
         else:
             ax = fig.add_subplot(1, 5, i+1)
-        fpr, tpr, thresholdls, auroc = utils.roc_pr_curves(safe, risky, inverse)
+
+        fpr, tpr, opt, auroc = utils.roc_pr_curves(safe, risky, inverse)
+        opt_list.append(opt)
+        acc = np.sum((risky > opt[2]).astype(int)) / risky.shape[0]
+        msg = (plotname + '\n'
+              "false positive rate: {:.3%}, "
+              "true positive rate: {:.3%}, "
+              "threshold: {}, "
+              "acc: {:.3%}\n".format(opt[0], opt[1], opt[2], acc))
+        with open(fname, 'a') as f:
+            f.write(msg)
+
         ax.plot(fpr, tpr, '-',
                 label='AUROC:{}'.format(auroc),
                 lw=4)
@@ -311,6 +324,8 @@ def stats(ckpt_dir, stats_fig, fname):
     fig.tight_layout()
     canvas.print_figure(stats_fig, format='png')
     print('saved {}'.format(stats_fig))
+
+
 
 
 if __name__ == "__main__":

@@ -239,8 +239,7 @@ def collect_split_extract(parent_dir):
                                   params.brand_models)
 
     # split dataset in train, val and test
-    split_ds = split_dataset(image_paths, 
-                             brand_models=params.brand_models)
+    split_ds = split_dataset(image_paths)
     # extract patches from full-sized images
     for i in range(len(params.brand_models)):
         logging.info("... Extracting patches from {} images".format(params.brand_models[i]))
@@ -384,9 +383,6 @@ def build_dataset(data_id, class_imbalance=False):
                 class_datasets.append(class_dataset)
             # uniformly samples in the class_datasets
             dataset = (tf.data.experimental.sample_from_datasets(class_datasets)
-                    #    .map(parse_image if params.database == 'dresden'
-                    #         else fn, num_parallel_calls=AUTOTUNE 
-                    #         if params.database == 'dresden' else None)
                        .map(parse_image, num_parallel_calls=AUTOTUNE)
                        .batch(params.BATCH_SIZE)
                        .prefetch(buffer_size=AUTOTUNE))  # make sure you always have one batch ready to serve
@@ -395,9 +391,6 @@ def build_dataset(data_id, class_imbalance=False):
             dataset = (tf.data.Dataset.list_files(params.patch_dir + '/train/*/*')
                        .repeat()
                        .shuffle(buffer_size=1000)  # whole dataset into the buffer ensures good shuffling
-                    #    .map(parse_image if params.database == 'dresden'
-                    #         else fn, num_parallel_calls=AUTOTUNE 
-                    #         if params.database == 'dresden' else None)
                        .map(parse_image, num_parallel_calls=AUTOTUNE)
                        .batch(params.BATCH_SIZE)
                        .prefetch(buffer_size=AUTOTUNE))
@@ -405,18 +398,12 @@ def build_dataset(data_id, class_imbalance=False):
     elif data_id == 'val':
         dataset = (tf.data.Dataset.list_files(params.patch_dir + '/val/*/*')
                    .repeat()
-                #    .map(parse_image if params.database == 'dresden'
-                #         else fn, num_parallel_calls=AUTOTUNE 
-                #         if params.database == 'dresden' else None)
                    .map(parse_image, num_parallel_calls=AUTOTUNE)
                    .batch(params.BATCH_SIZE)
                    .prefetch(buffer_size=AUTOTUNE))
 
     elif data_id == 'test':
         dataset = (tf.data.Dataset.list_files(params.patch_dir + '/test/*/*')
-                #    .map(parse_image if params.database == 'dresden'
-                #         else fn, num_parallel_calls=AUTOTUNE 
-                #         if params.database == 'dresden' else None)
                    .map(parse_image, num_parallel_calls=AUTOTUNE)
                    .batch(params.BATCH_SIZE)
                    .prefetch(buffer_size=AUTOTUNE))

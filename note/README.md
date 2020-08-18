@@ -190,7 +190,7 @@ The dataset has 41,325 training images, 1292 batches.
 - When set the kl_weight to num_batches, the kl loss becomes negative.
 - [x] using the epsitemic and aleatoric decomposition from the [code](https://gitlab.cs.fau.de/snippets/101), it will be a K by K matrix, where K is the number of classes. Does the diagonal of this matrix indicates the uncertainty? (It's a auto covariance matrix to me.) 
   - [answer from kwon](https://github.com/ykwon0407/UQ_BNN/issues/3#issuecomment-452525593)
-  - Also, there is a way to calculate the uncertainty (here)[https://github.com/ykwon0407/UQ_BNN/issues/3#issuecomment-455529058]
+  - Also, there is a way to calculate the uncertainty [here](https://github.com/ykwon0407/UQ_BNN/issues/3#issuecomment-455529058)
 
 
 ## Week 9

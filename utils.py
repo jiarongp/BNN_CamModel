@@ -11,10 +11,6 @@ plt = matplotlib.pyplot
 from matplotlib import figure
 from matplotlib.backends import backend_agg
 
-title_font_size = 55
-axes_font_size =55
-legend_font_size = 50
-ticks_font_size = 50
 color = sns.color_palette("Set2")
  
 
@@ -97,7 +93,7 @@ def image_uncertainty(mc_s_prob):
     # mean over the mc samples (# batches * batch_size, # classes)
     mean_probs = np.mean(mc_s_prob, axis=0)
     # log_prob over classes (# batches * batch_size)
-    log_prob = -np.sum((mean_probs * np.log(mean_probs + np.finfo(float).eps)), axis=1)
+    entropy = -np.sum((mean_probs * np.log(mean_probs + np.finfo(float).eps)), axis=1)
 
     epistemic_all = []
     for i in range(mc_s_prob.shape[1]): # for each image
@@ -106,7 +102,7 @@ def image_uncertainty(mc_s_prob):
         # summarize the matrix 
         epistemic_all.append(sum(np.diag(epistemic)))
     epistemic_all = np.asarray(epistemic_all)
-    return log_prob, epistemic_all
+    return entropy, epistemic_all
 
 
 # ---------------------------- Visualization ---------------------------------------
@@ -217,10 +213,16 @@ def roc_pr_curves(safe, risky, inverse=False):
     
     auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
     fpr, tpr, thresholds = sk.roc_curve(labels, examples)
+    # optimal cutoff is the threshold with (tpr - (1 - fpr)) closest to 0
+    distance = np.abs(tpr - (1 - fpr))
+    idx = np.argmin(distance)
+    opt_thresholds = thresholds[idx]
+    opt_fpr = fpr[idx]
+    opt_tpr = tpr[idx]
+    opt = [opt_fpr, opt_tpr, opt_thresholds]
     # aupr = round(100 * sk.average_precision_score(labels, examples), 2)
     # precision, recall, _ = sk.precision_recall_curve(labels, examples)
-    # return fpr, tpr, precision, recall, aupr, auroc
-    return fpr, tpr, thresholds, auroc
+    return fpr, tpr, opt, auroc
 
 
 # ---------------------------- Distinction ---------------------------------------
@@ -428,17 +430,36 @@ def log_mc_in_out(in_log_prob, out_log_prob,
 
 # ---------------------------- Histogram ---------------------------------------
 
-def vis_hist(data, labels, fname, xlabel):
+def vis_softmax_hist(data, labels, fname, xlabel):
     plt.figure(figsize=(20, 20))
     c = 0
     for d, l in zip(data, labels):
         plt.hist(d, label=l, alpha=0.5, bins=20, color=color[c])
         c += 1
-    plt.title("Dataset classification", fontsize=title_font_size)
-    plt.xlabel("Classification confidence", fontsize=axes_font_size)
-    plt.ylabel("Number of images", fontsize=axes_font_size)
-    plt.legend(loc=0)
+    plt.title("Dataset classification", fontsize=25)
+    plt.xlabel("Classification confidence", fontsize=25)
+    plt.ylabel("Number of images", fontsize=25)
+    plt.legend(loc=0, fontsize=25)
+    plt.tick_params(axis='both', which='minor', labelsize=12)
     plt.xlim(left=-0.0, right=1.05)
+    plt.savefig(fname, bbox_inches='tight')
+
+
+def vis_uncertainty_hist(data, labels, fname, xlabel):
+    plt.figure(figsize=(20, 20))
+    max_uncertainty = []
+    c = 0
+    for d, l in zip(data, labels):
+        max_uncertainty.append(max(d))
+        plt.hist(d, label=l, alpha=0.5, bins=20, color=color[c])
+        c += 1
+    
+    plt.title("Dataset classification", fontsize=25)
+    plt.xlabel("Classification confidence", fontsize=25)
+    plt.ylabel("Number of images", fontsize=25)
+    plt.legend(loc=0, fontsize=25)
+    plt.tick_params(axis='both', which='minor', labelsize=20)
+    plt.xlim(left=-0.0, right=max(max_uncertainty))
     plt.savefig(fname, bbox_inches='tight')
 
 
