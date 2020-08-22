@@ -221,6 +221,27 @@ Nikon_D7000_r0bf7f938t.TIF is corrupted.
 
 The ROC curves looks convex, because the true positive has smaller value than the true negative, as the threshold goes up, the true poitive rate will first small, than goes up to 1.
 
+# Week 11
+
+Experiment:
+- By setting the kernel and bias posterior like the following:
+  ```python
+  kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                        loc_initializer=keras.initializers.GlorotUniform(),
+                        untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                        stddev=0.0))
+  bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                      is_singular=True,
+                      loc_initializer=tf.random_normal_initializer(stddev=0.0),
+                      untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                      stddev=0.0))
+  ```
+  lr = 0.0001 using RMSprop. kl_weight is train_size. It reaches 89% accuracy.
+
+  The kernel posterior is initialized as a Gaussian, of which the mean is uniformly distributed in range of [-limit, limit], where limit = sqrt(6 / (fan_in + fan_out)) (fan_in is the number of input units in the weight tensor and fan_out is the number of output units). The variance of this Gaussian is near 0, which is 0.04858735157374196 (`np.log(1 + np.exp(-3))`).
+
+  The bias posterior is a deterministic distribution, with the mean of them is 0, variance is near 0.
+
 ## Note
 
 ### ELBO

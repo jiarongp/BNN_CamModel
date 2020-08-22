@@ -117,7 +117,7 @@ def split_dataset(img_list, seed=42):
             split_ds.append([train, val, test])
     else:
         # num_test equals to num_val
-        num_test = num_val = int(len(img_list) * 0.15)
+        num_test = num_val = int(len(img_list) * 0.1)
         num_train = len(img_list) - num_test - num_val
 
         np.random.seed(seed)

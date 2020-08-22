@@ -31,12 +31,41 @@ def evaluate(log, result_dir, ckpt_dir):
     # Define the model
     logging.info("Creating the model...")
     if params.model_type == 'bnn':
-        model = model_lib.BNN(train_size)
+        model = model_lib.bnn(train_size)
     else:
         model = model_lib.vanilla()
     test_loss = keras.metrics.Mean(name='test_loss')
     test_accuracy = keras.metrics.CategoricalAccuracy(name='test_accuracy')
     corr_count = [0 for m in params.brand_models]
+
+    if params.model_type == 'bnn':
+        # input random tensor to build the model
+        random_input = tf.random.normal([1, params.IMG_WIDTH, params.IMG_HEIGHT, 1])
+        model(random_input)
+        names = [layer.name for layer in model.layers
+                if 'flipout' in layer.name]
+        qm_vals = [layer.kernel_posterior.mean() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
+        qs_vals = [layer.kernel_posterior.stddev() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
+        bm_vals = [layer.bias_posterior.mean() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
+        bs_vals = [layer.bias_posterior.stddev() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
+
+        utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
+                                    fname=result_dir + 
+                                    "initialized_weight.png")
+        utils.plot_weight_posteriors(names, bm_vals, bs_vals, 
+                                    fname=result_dir + 
+                                    "initialized_bias.png")
+        logging.info("\nmean of mean is {}, mean variance is {}"
+                    .format(tf.reduce_mean(qm_vals[0]),
+                    tf.reduce_mean(qs_vals[0])))
 
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
@@ -92,10 +121,20 @@ def evaluate(log, result_dir, ckpt_dir):
         qs_vals = [layer.kernel_posterior.stddev() 
                 for layer in model.layers
                 if 'flipout' in layer.name]
+        bm_vals = [layer.bias_posterior.mean() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
+        bs_vals = [layer.bias_posterior.stddev() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
 
         utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
                                     fname=result_dir + 
                                     "trained_weight.png")
+        utils.plot_weight_posteriors(names, bm_vals, bs_vals, 
+                                    fname=result_dir + 
+                                    "trained_bias.png")
+ 
         logging.info("\nmean of mean is {}, mean variance is {}"
                     .format(tf.reduce_mean(qm_vals[0]),
                     tf.reduce_mean(qs_vals[0])))

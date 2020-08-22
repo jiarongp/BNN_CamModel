@@ -51,7 +51,7 @@ def stats(ckpt_dir, stats_fig, fname):
         for m in params.brand_models:
             train_size += len(os.listdir(os.path.join(params.patch_dir, 'train', m)))
         # import BNN model
-        model = model_lib.BNN(train_size)
+        model = model_lib.bnn(train_size)
     else:
         model = model_lib.vanilla()
     ckpt = tf.train.Checkpoint(
@@ -255,15 +255,16 @@ def stats(ckpt_dir, stats_fig, fname):
         labels = ['In Distribution', 'Unseen Models', 
                   'JPEG', 'Blurred', 'Noisy']
 
-        entropy = [in_entropy, unseen_entropy, jpeg_entropy, 
-                    blur_entropy, noise_entropy]
+        scale = int(num_test_batches / num_unseen_batches)
+        entropy = [in_entropy, np.repeat(unseen_entropy, scale), 
+                   jpeg_entropy, blur_entropy, noise_entropy]
         entropy_fig = ('results/' + params.database + '/' + 
                          params.model_type + '_entropy_dist.png')
         utils.vis_uncertainty_hist(entropy, labels, entropy_fig, 
                        "Entropy")
 
-        epistemic = [in_epistemic, unseen_epistemic, jpeg_epistemic,
-                     blur_epistemic, noise_epistemic]
+        epistemic = [in_epistemic, np.repeat(unseen_epistemic, scale),
+                     jpeg_epistemic, blur_epistemic, noise_epistemic]
         epistemic_fig = ('results/' + params.database + '/' + 
                           params.model_type + '_epistemic_dist.png')
         utils.vis_uncertainty_hist(epistemic, labels, epistemic_fig, 

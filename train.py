@@ -44,11 +44,11 @@ def build_and_train(log, tb_log, ckpt_dir):
     val_iterator = dp.build_dataset('val')
 
     if params.model_type == 'bnn':
-        model = model_lib.BNN(train_size)
+        model = model_lib.bnn(train_size)
     else:
         model = model_lib.vanilla()
 
-    # focal loss produce more guaranteed a quicker converge for training
+    # # focal loss produce more guaranteed a quicker converge for training
     # def focal_loss(labels, logits, gamma=2.0, alpha=4.0):
     #     """
     #     focal loss for multi-classification
@@ -79,7 +79,8 @@ def build_and_train(log, tb_log, ckpt_dir):
 
     loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
     # loss_object = focal_loss
-    optimizer = keras.optimizers.Adam(lr=params.HParams['init_learning_rate'])
+    # optimizer = keras.optimizers.Adam(lr=params.HParams['init_learning_rate'])
+    optimizer = keras.optimizers.RMSprop(lr=params.HParams['init_learning_rate'])
 
     train_loss = keras.metrics.Mean(name='train_loss')
     train_acc = keras.metrics.CategoricalAccuracy(name='train_accuracy')
@@ -98,7 +99,7 @@ def build_and_train(log, tb_log, ckpt_dir):
     # save model to a checkpoint
     ckpt = tf.train.Checkpoint(
             step=tf.Variable(1), 
-            optimizer=keras.optimizers.Adam(lr=params.HParams['init_learning_rate']), 
+            optimizer=optimizer, 
             net=model)
     manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=3)
     if params.restore:
@@ -108,38 +109,48 @@ def build_and_train(log, tb_log, ckpt_dir):
         else:
             logging.info("Initializing from scratch.")
 
-    if params.model_type == 'bnn':
 
+    if params.model_type == 'bnn':
+        
         @tf.function
         def train_step(images, labels):
             with tf.GradientTape() as tape:
                 logits = model(images, training=True)
-                nll =loss_object(labels, logits)
+                nll = loss_object(labels, logits)
                 kl = sum(model.losses)
                 loss = nll + kl
 
             gradients = tape.gradient(loss, model.trainable_weights)
+            if step % 50 == 0:
+                with train_writer.as_default():
+                    for grad, t_w in zip(gradients, model.trainable_weights):
+                        if 'kernel' in t_w.name:
+                            tf.summary.histogram(t_w.name, grad, offset+step)
+                    for l in model.layers[1:]:
+                        tf.summary.scalar(l.name,  l.losses[0], step=offset+step)
             optimizer.apply_gradients(zip(gradients, model.trainable_weights))
             kl_loss.update_state(kl)  
             nll_loss.update_state(nll)
-            train_loss.update_state(loss)  
+            train_loss.update_state(loss)
             train_acc.update_state(labels, logits)
 
         @tf.function
-        def val_step(images, labels, corr_count):
+        def val_step(images, labels):
             with tf.GradientTape() as tape:
                 logits = model(images)
                 nll = loss_object(labels, logits)
                 kl = sum(model.losses)
                 loss = nll + kl
-                # accuracy for each class
-                for label, logit in zip(labels, logits):
-                    y_true = tf.math.argmax(label)
-                    y_pred = tf.math.argmax(logit)
-                    if y_true == y_pred:
-                        corr_count[y_true] += 1
+            # number of samples for each class
+            total = tf.math.reduce_sum(labels, axis=0).numpy()
+            gt = tf.math.argmax(labels, axis=1)
+            pred = tf.math.argmax(logits, axis=1)
+            corr = labels[pred == gt]
+            corr_count = tf.math.reduce_sum(corr, axis=0).numpy()
+
             val_loss.update_state(loss)
             val_acc.update_state(labels, logits)
+            return corr_count, total
 
     else:
         @tf.function
@@ -148,28 +159,35 @@ def build_and_train(log, tb_log, ckpt_dir):
                 logits = model(images, training=True)
                 loss = loss_object(labels, logits)
             gradients = tape.gradient(loss, model.trainable_weights)
+            if step % 100 == 0:
+                with train_writer.as_default():
+                    for grad, t_w in zip(gradients, model.trainable_weights):
+                        if 'kernel' in t_w.name:
+                            tf.summary.histogram(t_w.name, grad, offset+step)
             optimizer.apply_gradients(zip(gradients, model.trainable_weights))
             train_loss.update_state(loss)  
             train_acc.update_state(labels, logits)
 
         @tf.function
-        def val_step(images, label, corr_count):
+        def val_step(images, labels):
             with tf.GradientTape() as tape:
                 logits = model(images)
-                loss = loss_object(labels, logits) 
+                loss = loss_object(labels, logits)
 
-                for label, logit in zip(labels, logits):
-                    y_true = tf.math.argmax(label)
-                    y_pred = tf.math.argmax(logit)
-                    if y_true == y_pred:
-                        corr_count[y_true] += 1
+            # number of samples for each class
+            total = tf.math.reduce_sum(labels, axis=0).numpy()
+            gt = tf.math.argmax(labels, axis=1)
+            pred = tf.math.argmax(logits, axis=1)
+            corr = labels[pred == gt]
+            corr_count = tf.math.reduce_sum(corr, axis=0).numpy()
+
             val_loss.update_state(loss)
             val_acc.update_state(labels, logits)
+            return corr_count, total
             
     logging.info('... Training convolutional neural network\n')
     for epoch in range(params.NUM_EPOCHS):
         offset = epoch * num_train_steps
-
         val_loss.reset_states()
         val_acc.reset_states()
         train_loss.reset_states()
@@ -181,6 +199,7 @@ def build_and_train(log, tb_log, ckpt_dir):
         for step in trange(num_train_steps):
             images, labels = train_iterator.get_next()
             train_step(images, labels)
+            train_writer.flush()
 
             if epoch == 0 and step == 0:
                 model.summary()
@@ -190,11 +209,11 @@ def build_and_train(log, tb_log, ckpt_dir):
                     val_writer.flush()
 
             with train_writer.as_default():
-                tf.summary.scalar('loss', train_loss.result(), step=offset + step)
-                tf.summary.scalar('accuracy', train_acc.result(), step=offset + step)
+                tf.summary.scalar('loss', train_loss.result(), step=offset+step)
+                tf.summary.scalar('accuracy', train_acc.result(), step=offset+step)
                 if params.model_type == 'bnn':
-                    tf.summary.scalar('kl_loss', kl_loss.result(), step=offset + step)
-                    tf.summary.scalar('nll_loss', nll_loss.result(), step=offset + step)
+                    tf.summary.scalar('kl_loss', kl_loss.result(), step=offset+step)
+                    tf.summary.scalar('nll_loss', nll_loss.result(), step=offset+step)
                 train_writer.flush()
 
             if (step+1) % 100 == 0:
@@ -208,11 +227,12 @@ def build_and_train(log, tb_log, ckpt_dir):
                                  .format(kl_loss.result(),
                                          nll_loss.result()))
 
-        corr_count = [0 for m in params.brand_models]
+        corr_ls, total_ls = [[0 for m in params.brand_models] for i in range(2)]
         for step in trange(num_val_steps):
             images, labels = val_iterator.get_next()
-            val_step(images, labels, corr_count)
-
+            c, t = val_step(images, labels)
+            corr_ls += c
+            total_ls += t
 
         with val_writer.as_default():
             tf.summary.scalar('loss', val_loss.result(), step=offset+num_train_steps)
@@ -221,10 +241,9 @@ def build_and_train(log, tb_log, ckpt_dir):
 
         logging.info('val loss: {:.3f}, validation accuracy: {:.3%}'.format(
                 val_loss.result(), val_acc.result()))
-        n = 0
-        for m, c in zip(params.models, corr_count):
-            logging.info('{} accuracy: {:.3%}'.format(m, c / val_size[n]))
-            n += 1
+
+        for m, c, t in zip(params.models, corr_ls, total_ls):
+            logging.info('{} accuracy: {:.3%}'.format(m, c / t))
         logging.info('\n')
 
         # save the best model regarding to train acc

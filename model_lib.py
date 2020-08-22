@@ -29,13 +29,13 @@ def constrain_conv(layer, pre_weights):
     layer.set_weights([weights, bias])
     return pre_weights
 
-class BNN(keras.Model):
+class bnn(keras.Model):
     def __init__(self, kl_weight):
                 #  eb_prior_fn, 
                 #  examples_per_epoch):
-        super(BNN, self).__init__()
+        super(bnn, self).__init__()
         divergence_fn = (lambda q, p, _: tfd.kl_divergence(q, p) / 
-                         tf.cast(kl_weight, dtype=tf.float32))
+                            tf.cast(kl_weight, dtype=tf.float32))
 
         self.constrained_weights = None
         # no non-linearity after constrained layer
@@ -49,52 +49,118 @@ class BNN(keras.Model):
             tfp.layers.Convolution2DFlipout(
                                 96, kernel_size=7,
                                 strides=2, padding='same',
+                                kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    loc_initializer=keras.initializers.GlorotUniform(),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                                    stddev=0.0)),
                                 kernel_divergence_fn=divergence_fn,
+                                bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    is_singular=True,
+                                    loc_initializer=tf.random_normal_initializer(stddev=0.0),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                                    stddev=0.0)),
                                 activation='selu')
         self.variational_conv2 = \
             tfp.layers.Convolution2DFlipout(
                                 64, kernel_size=5,
                                 strides=1, padding='same',
+                                kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    loc_initializer=keras.initializers.GlorotUniform(),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(
+                                        mean=-3., stddev=0.0)),
+                                bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    is_singular=True,
+                                    loc_initializer=tf.random_normal_initializer(stddev=0.0),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                                    stddev=0.0)),
                                 kernel_divergence_fn=divergence_fn,
                                 activation='selu')
         self.variational_conv3 = \
             tfp.layers.Convolution2DFlipout(
                                 64, kernel_size=5,
                                 strides=1, padding='same',
+                                kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    loc_initializer=keras.initializers.GlorotUniform(),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(
+                                        mean=-3., stddev=0.0)),
+                                bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    is_singular=True,
+                                    loc_initializer=tf.random_normal_initializer(stddev=0.0),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                                    stddev=0.0)),
                                 kernel_divergence_fn=divergence_fn,
                                 activation='selu')
         self.variational_conv4 = \
             tfp.layers.Convolution2DFlipout(
                                 128, kernel_size=1,
                                 strides=1, padding='same',
+                                kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    loc_initializer=keras.initializers.GlorotUniform(),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(
+                                        mean=-3., stddev=0.0)),
+                                bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    is_singular=True,
+                                    loc_initializer=tf.random_normal_initializer(stddev=0.0),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                                    stddev=0.0)),
                                 kernel_divergence_fn=divergence_fn,
                                 activation='selu')
         self.dense1 = tfp.layers.DenseFlipout(200,
-                                kernel_divergence_fn=divergence_fn)
+                                kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    loc_initializer=keras.initializers.GlorotUniform(),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(
+                                        mean=-3., stddev=0.0)),
+                                bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    is_singular=True,
+                                    loc_initializer=tf.random_normal_initializer(stddev=0.0),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                                    stddev=0.0)),
+                                kernel_divergence_fn=divergence_fn,
+                                activation='selu')
         self.dense2 = tfp.layers.DenseFlipout(200,
-                                kernel_divergence_fn=divergence_fn)
+                                kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    loc_initializer=keras.initializers.GlorotUniform(),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(
+                                        mean=-3., stddev=0.0)),
+                                kernel_divergence_fn=divergence_fn,
+                                bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    is_singular=True,
+                                    loc_initializer=tf.random_normal_initializer(stddev=0.0),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                                    stddev=0.0)),
+                                activation='selu')
         self.dense3 = tfp.layers.DenseFlipout(NUM_CLASSES,
-                                kernel_divergence_fn=divergence_fn)
+                                kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    loc_initializer=keras.initializers.GlorotUniform(),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(
+                                        mean=-3., stddev=0.0)),
+                                kernel_divergence_fn=divergence_fn,
+                                bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
+                                    is_singular=True,
+                                    loc_initializer=tf.random_normal_initializer(stddev=0.0),
+                                    untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
+                                    stddev=0.0)
+                                ))
 
     def call(self, x, training=False):
         x = self.constrained_conv(x)
 
         x = self.variational_conv1(x)
         x = keras.layers.MaxPool2D(pool_size=3,
-                                      strides=2,
-                                      padding='SAME')(x)
+                                    strides=2,
+                                    padding='SAME')(x)
 
         x = self.variational_conv2(x)
         x = keras.layers.MaxPool2D(pool_size=3, 
-                                      strides=2)(x)
+                                    strides=2)(x)
 
         x = self.variational_conv3(x)
         x = keras.layers.MaxPool2D(pool_size=3, 
-                                      strides=2)(x)
+                                    strides=2)(x)
         
         x = self.variational_conv4(x)
         x = keras.layers.MaxPool2D(pool_size=3, 
-                                      strides=2)(x)
+                                    strides=2)(x)
 
         x = keras.layers.Flatten()(x)
         x = self.dense1(x)
@@ -109,8 +175,6 @@ class BNN(keras.Model):
 
 class vanilla(keras.Model):
     def __init__(self):
-                #  eb_prior_fn, 
-                #  examples_per_epoch):
         super(vanilla, self).__init__()
         self.constrained_weights = None
         # no non-linearity after constrained layer
