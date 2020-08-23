@@ -2,7 +2,7 @@
 model_type = 'bnn'
 # 'dresden' / 'RAISE'
 database = 'dresden'
-even_database = True
+even_database = False
 image_root = 'data/'
 
 if database == 'dresden':
@@ -42,7 +42,7 @@ IMG_WIDTH = 256
 patch_num = 25
 patch_span = 256 * 5
 BATCH_SIZE = 64
-NUM_EPOCHS = 100
+NUM_EPOCHS = 150
 NUM_CLASSES = len(brand_models)
 num_monte_carlo = 20
 patience = 5
@@ -50,7 +50,7 @@ patience = 5
 restore = False
 
 HParams = {'init_learning_rate':0.0001,
-           'init_prior_scale_mean':-1.9994,
-           'init_prior_scale_std':-0.30840, 
-           'std_prior_scale':3.4210}
+           'init_prior_scale_mean':-1,
+           'init_prior_scale_std':.1, 
+           'std_prior_scale':1.5}
 

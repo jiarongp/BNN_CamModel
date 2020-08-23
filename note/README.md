@@ -227,14 +227,13 @@ Experiment:
 - By setting the kernel and bias posterior like the following:
   ```python
   kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
-                        loc_initializer=keras.initializers.GlorotUniform(),
+                        loc_initializer=keras.initializers.GlorotUniform(), 
+                        # or He normal as initialization
                         untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
                         stddev=0.0))
   bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                       is_singular=True,
-                      loc_initializer=tf.random_normal_initializer(stddev=0.0),
-                      untransformed_scale_initializer=tf.random_normal_initializer(mean=-3.0,
-                      stddev=0.0))
+                      loc_initializer=tf.random_normal_initializer(stddev=0.0))
   ```
   lr = 0.0001 using RMSprop. kl_weight is train_size. It reaches 89% accuracy.
 

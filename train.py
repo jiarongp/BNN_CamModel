@@ -80,7 +80,12 @@ def build_and_train(log, tb_log, ckpt_dir):
     loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
     # loss_object = focal_loss
     # optimizer = keras.optimizers.Adam(lr=params.HParams['init_learning_rate'])
-    optimizer = keras.optimizers.RMSprop(lr=params.HParams['init_learning_rate'])
+    lr_schedule = keras.optimizers.schedules.ExponentialDecay(
+        params.HParams['init_learning_rate'],
+        decay_steps=num_train_steps,
+        decay_rate=0.96,
+        staircase=True)
+    optimizer = keras.optimizers.RMSprop(learning_rate=lr_schedule)
 
     train_loss = keras.metrics.Mean(name='train_loss')
     train_acc = keras.metrics.CategoricalAccuracy(name='train_accuracy')
@@ -98,8 +103,8 @@ def build_and_train(log, tb_log, ckpt_dir):
 
     # save model to a checkpoint
     ckpt = tf.train.Checkpoint(
-            step=tf.Variable(1), 
-            optimizer=optimizer, 
+            step=tf.Variable(1),
+            optimizer=optimizer,
             net=model)
     manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=3)
     if params.restore:
@@ -129,6 +134,10 @@ def build_and_train(log, tb_log, ckpt_dir):
                     for l in model.layers[1:]:
                         tf.summary.scalar(l.name,  l.losses[0], step=offset+step)
             optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+            with train_writer.as_default():
+                tf.summary.scalar('learning_rate',
+                                optimizer._decayed_lr(tf.float32),
+                                step=offset+step)
             kl_loss.update_state(kl)  
             nll_loss.update_state(nll)
             train_loss.update_state(loss)

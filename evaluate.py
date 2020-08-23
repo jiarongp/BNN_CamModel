@@ -42,30 +42,62 @@ def evaluate(log, result_dir, ckpt_dir):
         # input random tensor to build the model
         random_input = tf.random.normal([1, params.IMG_WIDTH, params.IMG_HEIGHT, 1])
         model(random_input)
+
         names = [layer.name for layer in model.layers
                 if 'flipout' in layer.name]
+        # prior distribution of kernel
+        pm_vals = [layer.kernel_prior.mean() 
+                for layer in model.layers
+                if 'flipout' in layer.name]
+        ps_vals = [layer.kernel_prior.stddev()
+                for layer in model.layers
+                if 'flipout' in layer.name]
+        # posterior distribution of kernel
         qm_vals = [layer.kernel_posterior.mean() 
                 for layer in model.layers
                 if 'flipout' in layer.name]
         qs_vals = [layer.kernel_posterior.stddev() 
                 for layer in model.layers
                 if 'flipout' in layer.name]
-        bm_vals = [layer.bias_posterior.mean() 
+        # posterior distribution of bias
+        bm_vals = [layer.bias_posterior.mean()
                 for layer in model.layers
                 if 'flipout' in layer.name]
         bs_vals = [layer.bias_posterior.stddev() 
                 for layer in model.layers
                 if 'flipout' in layer.name]
 
+        utils.plot_weight_posteriors(names, pm_vals, ps_vals, 
+                                    fname=result_dir + 
+                                    "initialized_prior.png")
         utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
                                     fname=result_dir + 
                                     "initialized_weight.png")
         utils.plot_weight_posteriors(names, bm_vals, bs_vals, 
                                     fname=result_dir + 
                                     "initialized_bias.png")
-        logging.info("\nmean of mean is {}, mean variance is {}"
-                    .format(tf.reduce_mean(qm_vals[0]),
-                    tf.reduce_mean(qs_vals[0])))
+
+        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in pm_vals]
+        loc_std = [tf.math.reduce_std(std).numpy() for std in pm_vals]
+        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in ps_vals]
+        scale_std = [tf.math.reduce_std(std).numpy() for std in ps_vals]
+        logging.info('prior distribution of kernel:')
+        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_std))
+
+        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in qm_vals]
+        loc_std = [tf.math.reduce_std(std).numpy() for std in qm_vals]
+        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in qs_vals]
+        scale_std = [tf.math.reduce_std(std).numpy() for std in qs_vals]
+        logging.info('posterior distribution of kernel:')
+        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'
+                      .format(loc_mean, loc_std, scale_mean, scale_std))
+
+        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in bm_vals]
+        loc_std = [tf.math.reduce_std(std).numpy() for std in bm_vals]
+        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in bs_vals]
+        scale_std = [tf.math.reduce_std(std).numpy() for std in bs_vals]
+        logging.info('posterior distribution of bias')
+        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_mean))
 
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
@@ -113,8 +145,12 @@ def evaluate(log, result_dir, ckpt_dir):
                                     title='mean heldout logprob {:.2f}'
                                     .format(heldout_log_prob))
 
-        names = [layer.name for layer in model.layers
+        pm_vals = [layer.kernel_prior.mean() 
+                for layer in model.layers
                 if 'flipout' in layer.name]
+        ps_vals = [layer.kernel_prior.stddev() 
+                for layer in model.layers
+                if 'flipout' in layer.name] 
         qm_vals = [layer.kernel_posterior.mean() 
                 for layer in model.layers
                 if 'flipout' in layer.name]
@@ -128,16 +164,37 @@ def evaluate(log, result_dir, ckpt_dir):
                 for layer in model.layers
                 if 'flipout' in layer.name]
 
+        utils.plot_weight_posteriors(names, pm_vals, ps_vals, 
+                                    fname=result_dir + 
+                                    "trained_prior.png")
         utils.plot_weight_posteriors(names, qm_vals, qs_vals, 
                                     fname=result_dir + 
                                     "trained_weight.png")
         utils.plot_weight_posteriors(names, bm_vals, bs_vals, 
                                     fname=result_dir + 
                                     "trained_bias.png")
- 
-        logging.info("\nmean of mean is {}, mean variance is {}"
-                    .format(tf.reduce_mean(qm_vals[0]),
-                    tf.reduce_mean(qs_vals[0])))
+
+        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in pm_vals]
+        loc_std = [tf.math.reduce_std(std).numpy() for std in pm_vals]
+        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in ps_vals]
+        scale_std = [tf.math.reduce_std(std).numpy() for std in ps_vals]
+        logging.info('prior distribution of kernel:')
+        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_std))
+
+        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in qm_vals]
+        loc_std = [tf.math.reduce_std(std).numpy() for std in qm_vals]
+        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in qs_vals]
+        scale_std = [tf.math.reduce_std(std).numpy() for std in qs_vals]
+        logging.info('posterior distribution of kernel:')
+        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'
+                      .format(loc_mean, loc_std, scale_mean, scale_std))
+
+        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in bm_vals]
+        loc_std = [tf.math.reduce_std(std).numpy() for std in bm_vals]
+        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in bs_vals]
+        scale_std = [tf.math.reduce_std(std).numpy() for std in bs_vals]
+        logging.info('posterior distribution of bias')
+        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_mean))
     
     else:
         @tf.function
@@ -149,7 +206,7 @@ def evaluate(log, result_dir, ckpt_dir):
                                                             from_logits=True)
                 softmax = tf.nn.softmax(logits)
             # accuracy for each class
-            for label, label in zip(labels, logits):
+            for label, logit in zip(labels, logits):
                 y_true = tf.math.argmax(label)
                 y_pred = tf.math.argmax(logit)
                 if y_true == y_pred:
