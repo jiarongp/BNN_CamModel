@@ -47,6 +47,8 @@ def build_and_train(log, tb_log, ckpt_dir):
         model = model_lib.bnn(train_size)
     else:
         model = model_lib.vanilla()
+    model.build(input_shape=(None, 256, 256, 1))
+    model.summary()
 
     # # focal loss produce more guaranteed a quicker converge for training
     # def focal_loss(labels, logits, gamma=2.0, alpha=4.0):
@@ -77,15 +79,16 @@ def build_and_train(log, tb_log, ckpt_dir):
     #     # reduced_fl = tf.reduce_sum(fl, axis=1)  # same as reduce_max
     #     return reduced_fl
 
+
     loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
     # loss_object = focal_loss
-    # optimizer = keras.optimizers.Adam(lr=params.HParams['init_learning_rate'])
     lr_schedule = keras.optimizers.schedules.ExponentialDecay(
         params.HParams['init_learning_rate'],
         decay_steps=num_train_steps,
-        decay_rate=0.96,
+        decay_rate=0.99,
         staircase=True)
     optimizer = keras.optimizers.RMSprop(learning_rate=lr_schedule)
+    # optimizer = keras.optimizers.Adam(lr=0.0001)
 
     train_loss = keras.metrics.Mean(name='train_loss')
     train_acc = keras.metrics.CategoricalAccuracy(name='train_accuracy')
@@ -116,7 +119,7 @@ def build_and_train(log, tb_log, ckpt_dir):
 
 
     if params.model_type == 'bnn':
-        
+
         @tf.function
         def train_step(images, labels):
             with tf.GradientTape() as tape:
@@ -126,7 +129,7 @@ def build_and_train(log, tb_log, ckpt_dir):
                 loss = nll + kl
 
             gradients = tape.gradient(loss, model.trainable_weights)
-            if step % 50 == 0:
+            if step % 100 == 0:
                 with train_writer.as_default():
                     for grad, t_w in zip(gradients, model.trainable_weights):
                         if 'kernel' in t_w.name:
@@ -174,7 +177,7 @@ def build_and_train(log, tb_log, ckpt_dir):
                         if 'kernel' in t_w.name:
                             tf.summary.histogram(t_w.name, grad, offset+step)
             optimizer.apply_gradients(zip(gradients, model.trainable_weights))
-            train_loss.update_state(loss)  
+            train_loss.update_state(loss)
             train_acc.update_state(labels, logits)
 
         @tf.function
@@ -211,7 +214,7 @@ def build_and_train(log, tb_log, ckpt_dir):
             train_writer.flush()
 
             if epoch == 0 and step == 0:
-                model.summary()
+                
                 with val_writer.as_default():
                     tf.summary.scalar('loss',  train_loss.result(), step=offset)
                     tf.summary.scalar('accuracy', train_acc.result(), step=offset)

@@ -56,7 +56,7 @@ def stats(ckpt_dir, stats_fig, fname):
         model = model_lib.vanilla()
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
-        optimizer=tf.keras.optimizers.Adam(lr=params.HParams['init_learning_rate']),
+        optimizer=tf.keras.optimizers.RMSprop(lr=params.HParams['init_learning_rate']),
         net=model)
     manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
@@ -87,7 +87,7 @@ def stats(ckpt_dir, stats_fig, fname):
                             .batch(params.BATCH_SIZE)
                             .prefetch(buffer_size=AUTOTUNE))
 
-    jpeg_ds = dp.post_processing(ds, 'jpeg')
+    jpeg_ds = dp.post_processing(ds, 'jpeg', 70)
     jpeg_dataset = (tf.data.Dataset.from_tensor_slices(jpeg_ds)
                     .repeat()
                     .map(dp.parse_image,
@@ -95,7 +95,7 @@ def stats(ckpt_dir, stats_fig, fname):
                     .batch(params.BATCH_SIZE)
                     .prefetch(buffer_size=AUTOTUNE))
 
-    blur_ds = dp.post_processing(ds, 'blur')
+    blur_ds = dp.post_processing(ds, 'blur', 1.1)
     blur_dataset = (tf.data.Dataset.from_tensor_slices(blur_ds)
                     .repeat()
                     .map(dp.parse_image,
@@ -103,7 +103,7 @@ def stats(ckpt_dir, stats_fig, fname):
                     .batch(params.BATCH_SIZE)
                     .prefetch(buffer_size=AUTOTUNE))
     
-    noise_ds = dp.post_processing(ds, 'noise')
+    noise_ds = dp.post_processing(ds, 'noise', 2)
     noise_dataset = (tf.data.Dataset.from_tensor_slices(noise_ds)
                         .repeat()
                         .map(dp.parse_image,

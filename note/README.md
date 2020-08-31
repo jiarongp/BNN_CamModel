@@ -224,6 +224,7 @@ The ROC curves looks convex, because the true positive has smaller value than th
 # Week 11
 
 Experiment:
+- The training result is affected by the batch size, because the nll loss is calculated by batch, the batch size goes up, nll loss also goes up.
 - By setting the kernel and bias posterior like the following:
   ```python
   kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
@@ -235,11 +236,45 @@ Experiment:
                       is_singular=True,
                       loc_initializer=tf.random_normal_initializer(stddev=0.0))
   ```
-  lr = 0.0001 using RMSprop. kl_weight is train_size. It reaches 89% accuracy.
+  `lr=0.0001` using RMSprop. `kl_weight` is `train_size`. It reaches 89% accuracy.
 
-  The kernel posterior is initialized as a Gaussian, of which the mean is uniformly distributed in range of [-limit, limit], where limit = sqrt(6 / (fan_in + fan_out)) (fan_in is the number of input units in the weight tensor and fan_out is the number of output units). The variance of this Gaussian is near 0, which is 0.04858735157374196 (`np.log(1 + np.exp(-3))`).
+  The kernel posterior is initialized as a Gaussian, of which the mean is uniformly distributed in range of `[-limit, limit]`, where `limit = sqrt(6 / (fan_in + fan_out))` (`fan_in` is the number of input units in the weight tensor and `fan_out` is the number of output units). The variance of this Gaussian is near 0, which is `0.048` <- `np.log(1 + np.exp(-3))`.
 
   The bias posterior is a deterministic distribution, with the mean of them is 0, variance is near 0.
+
+- using He normal or Glorot uniform as initialization of loc can improve the training.
+
+- using empirical bayes can reduce the `kl_loss`, which is benefitial to accuracy. Increasing the training size (disable the `even_database` flag) also help.
+  - EB's parameters: `initial_prior_scale_mean=-1`, `initial_prior_scale_std=0.1`, `std_prior_scale=1.5`.
+  - The scale (after softplus) then is a mean of `0.313`, std of `0.027` Gaussian.
+
+  ```python
+  def make_prior_fn_for_empirical_bayes(init_scale_mean=-1, init_scale_std=0.1):
+  """Returns a prior function with stateful parameters for EB models."""
+    def prior_fn(dtype, shape, name, _, add_variable_fn):
+      """A prior for the variational layers."""
+      untransformed_scale = add_variable_fn(
+          name=name + '_untransformed_scale',
+          shape=(1,),
+          initializer=tf.random_normal_initializer(
+              mean=init_scale_mean, stddev=init_scale_std),
+          dtype=dtype,
+          trainable=False)
+      loc = add_variable_fn(
+          name=name + '_loc',
+          initializer=keras.initializers.Zeros(),
+          shape=shape,
+          dtype=dtype,
+          trainable=True)
+      scale = 1e-6 + tf.nn.softplus(untransformed_scale)
+      dist = tfd.Normal(loc=loc, scale=scale)
+      batch_ndims = tf.size(input=dist.batch_shape_tensor())
+      return tfd.Independent(dist, reinterpreted_batch_ndims=batch_ndims)
+    return prior_fn
+  ```
+- using loc empirical bayes, with 0.99 learning rate decay for each epoch yield the best result.
+
+
 
 ## Note
 

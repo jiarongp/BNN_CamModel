@@ -18,7 +18,7 @@ if database == 'dresden':
     patch_dir = image_root + ('even_dresden_base'
                 if even_database else 'dresden_base')
     unseen_dir = image_root + 'dresden_unseen'
-    print_fig_step = 10
+    print_fig_step = 50
 
 elif database == 'RAISE':
     # RAISE brand model
@@ -42,9 +42,9 @@ IMG_WIDTH = 256
 patch_num = 25
 patch_span = 256 * 5
 BATCH_SIZE = 64
-NUM_EPOCHS = 150
+NUM_EPOCHS = 100
 NUM_CLASSES = len(brand_models)
-num_monte_carlo = 20
+num_monte_carlo = 30
 patience = 5
 # restore training
 restore = False
