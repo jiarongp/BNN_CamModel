@@ -51,7 +51,7 @@ def evaluate(log, result_dir, ckpt_dir):
                 if 'flipout' in layer.name]
         ps_vals = [layer.kernel_prior.stddev()
                 for layer in model.layers
-                if 'flipout' in layer.name]
+                if 'flipout' in layer.name] 
         # posterior distribution of kernel
         qm_vals = [layer.kernel_posterior.mean() 
                 for layer in model.layers
@@ -77,27 +77,27 @@ def evaluate(log, result_dir, ckpt_dir):
                                     fname=result_dir + 
                                     "initialized_bias.png")
 
-        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in pm_vals]
-        loc_std = [tf.math.reduce_std(std).numpy() for std in pm_vals]
-        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in ps_vals]
-        scale_std = [tf.math.reduce_std(std).numpy() for std in ps_vals]
-        logging.info('prior distribution of kernel:')
-        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_std))
+        # loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in pm_vals]
+        # loc_std = [tf.math.reduce_std(std).numpy() for std in pm_vals]
+        # scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in ps_vals]
+        # scale_std = [tf.math.reduce_std(std).numpy() for std in ps_vals]
+        # logging.info('prior distribution of kernel:')
+        # logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_std))
 
-        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in qm_vals]
-        loc_std = [tf.math.reduce_std(std).numpy() for std in qm_vals]
-        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in qs_vals]
-        scale_std = [tf.math.reduce_std(std).numpy() for std in qs_vals]
-        logging.info('posterior distribution of kernel:')
-        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'
-                      .format(loc_mean, loc_std, scale_mean, scale_std))
+        # loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in qm_vals]
+        # loc_std = [tf.math.reduce_std(std).numpy() for std in qm_vals]
+        # scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in qs_vals]
+        # scale_std = [tf.math.reduce_std(std).numpy() for std in qs_vals]
+        # logging.info('posterior distribution of kernel:')
+        # logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'
+        #               .format(loc_mean, loc_std, scale_mean, scale_std))
 
-        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in bm_vals]
-        loc_std = [tf.math.reduce_std(std).numpy() for std in bm_vals]
-        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in bs_vals]
-        scale_std = [tf.math.reduce_std(std).numpy() for std in bs_vals]
-        logging.info('posterior distribution of bias')
-        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_mean))
+        # loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in bm_vals]
+        # loc_std = [tf.math.reduce_std(std).numpy() for std in bm_vals]
+        # scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in bs_vals]
+        # scale_std = [tf.math.reduce_std(std).numpy() for std in bs_vals]
+        # logging.info('posterior distribution of bias')
+        # logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_mean))
 
     ckpt = tf.train.Checkpoint(
         step=tf.Variable(1), 
@@ -111,7 +111,7 @@ def evaluate(log, result_dir, ckpt_dir):
 
     if params.model_type == 'bnn':
         @tf.function
-        def test_step(images, labels, corr_count):
+        def test_step(images, labels):
             with tf.GradientTape() as tape:
                 logits = model(images)
                 nll = (keras.losses.
@@ -120,18 +120,22 @@ def evaluate(log, result_dir, ckpt_dir):
                                                 from_logits=True))
                 kl = sum(model.losses)
                 loss = nll + kl
-                # accuracy for each class
-                for label, logit in zip(labels, logits):
-                    y_true = tf.math.argmax(label)
-                    y_pred = tf.math.argmax(logit)
-                    if y_true == y_pred:
-                        corr_count[y_true] += 1
-            test_loss.update_state(loss)  
+            total = tf.math.reduce_sum(labels, axis=0).numpy()
+            gt = tf.math.argmax(labels, axis=1)
+            pred = tf.math.argmax(logits, axis=1)
+            corr = labels[pred == gt]
+            corr_count = tf.math.reduce_sum(corr, axis=0).numpy()
+
+            test_loss.update_state(loss)
             test_accuracy.update_state(labels, logits)
-        
+            return corr_count, total
+
+        corr_ls, total_ls = [[0 for m in params.brand_models] for i in range(2)]
         for step in trange(num_test_steps):
             images, labels = test_iterator.get_next()
-            test_step(images, labels, corr_count)
+            c, t = test_step(images, labels)
+            corr_ls += c
+            total_ls += t
 
             if step % params.print_fig_step == 0:
                 probs, heldout_log_prob = utils.compute_probs(model, images)
@@ -174,56 +178,61 @@ def evaluate(log, result_dir, ckpt_dir):
                                     fname=result_dir + 
                                     "trained_bias.png")
 
-        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in pm_vals]
-        loc_std = [tf.math.reduce_std(std).numpy() for std in pm_vals]
-        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in ps_vals]
-        scale_std = [tf.math.reduce_std(std).numpy() for std in ps_vals]
-        logging.info('prior distribution of kernel:')
-        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_std))
+        # loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in pm_vals]
+        # loc_std = [tf.math.reduce_std(std).numpy() for std in pm_vals]
+        # scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in ps_vals]
+        # scale_std = [tf.math.reduce_std(std).numpy() for std in ps_vals]
+        # logging.info('prior distribution of kernel:')
+        # logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_std))
 
-        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in qm_vals]
-        loc_std = [tf.math.reduce_std(std).numpy() for std in qm_vals]
-        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in qs_vals]
-        scale_std = [tf.math.reduce_std(std).numpy() for std in qs_vals]
-        logging.info('posterior distribution of kernel:')
-        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'
-                      .format(loc_mean, loc_std, scale_mean, scale_std))
+        # loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in qm_vals]
+        # loc_std = [tf.math.reduce_std(std).numpy() for std in qm_vals]
+        # scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in qs_vals]
+        # scale_std = [tf.math.reduce_std(std).numpy() for std in qs_vals]
+        # logging.info('posterior distribution of kernel:')
+        # logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'
+        #               .format(loc_mean, loc_std, scale_mean, scale_std))
 
-        loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in bm_vals]
-        loc_std = [tf.math.reduce_std(std).numpy() for std in bm_vals]
-        scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in bs_vals]
-        scale_std = [tf.math.reduce_std(std).numpy() for std in bs_vals]
-        logging.info('posterior distribution of bias')
-        logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_mean))
+        # loc_mean = [tf.math.reduce_mean(mean).numpy() for mean in bm_vals]
+        # loc_std = [tf.math.reduce_std(std).numpy() for std in bm_vals]
+        # scale_mean = [tf.math.reduce_mean(mean).numpy() for mean in bs_vals]
+        # scale_std = [tf.math.reduce_std(std).numpy() for std in bs_vals]
+        # logging.info('posterior distribution of bias')
+        # logging.info('loc mean: {}\nloc std: {}\nscale mean: {}\nscale std: {}'.format(loc_mean, loc_std, scale_mean, scale_mean))
     
     else:
         @tf.function
-        def test_step(images, labels, corr_count):
+        def test_step(images, labels):
             with tf.GradientTape() as tape:
                 logits = model(images)
                 loss = keras.losses.categorical_crossentropy(labels,
                                                             logits, 
                                                             from_logits=True)
                 softmax = tf.nn.softmax(logits)
-            # accuracy for each class
-            for label, logit in zip(labels, logits):
-                y_true = tf.math.argmax(label)
-                y_pred = tf.math.argmax(logit)
-                if y_true == y_pred:
-                    corr_count[y_true] += 1
+            # number of samples for each class
+            total = tf.math.reduce_sum(labels, axis=0).numpy()
+            gt = tf.math.argmax(labels, axis=1)
+            pred = tf.math.argmax(logits, axis=1)
+            corr = labels[pred == gt]
+            corr_count = tf.math.reduce_sum(corr, axis=0).numpy()
+
             test_loss.update_state(loss)  
             test_accuracy.update_state(labels, logits)
+            return corr_count, total
 
+
+        corr_ls, total_ls = [[0 for m in params.brand_models] for i in range(2)]
         for step in trange(num_test_steps):
             images, labels = test_iterator.get_next()
-            test_step(images, labels)
+            c, t = test_step(images, labels)
+            corr_ls += c
+            total_ls += t
 
     logging.info('test loss: {:.3f}, test accuracy: {:.3%}\n'.format(test_loss.result(),
                                                         test_accuracy.result()))
     n = 0
-    for m, c in zip(params.models, corr_count):
-        logging.info('{} accuracy: {:.3%}'.format(m, c / val_size[n]))
-        n += 1
+    for m, c, t in zip(params.models, corr_ls, total_ls):
+        logging.info('{} accuracy: {:.3%}'.format(m, c / t))
 
 
 if __name__ == '__main__':

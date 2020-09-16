@@ -421,7 +421,7 @@ def log_mc_in_out(in_log_prob, out_log_prob,
         f.write('{:.4f}, {:.4f}\n'.format(np.mean(out_epistemic),
                                           np.std(out_epistemic)))
         total = out_log_prob.shape[0] * num_monte_carlo
-        f.write("{} out-dist images\n".format(int(total / num_monte_carlo)))
+        f.write("{} out-dist images\n".format(out_log_prob.shape[0]))
         for i in range(len(params.brand_models)):
             f.write("{:.3%} out-dist images are classified as {}\n".format(
                     class_count[i] / total,

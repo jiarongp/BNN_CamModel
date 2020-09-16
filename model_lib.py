@@ -101,7 +101,7 @@ class bnn(keras.Model):
                                     loc_initializer=keras.initializers.GlorotUniform(),
                                     # loc_initializer=keras.initializers.he_normal(),
                                     # untransformed_scale_initializer=tf.random_normal_initializer(
-                                    #     mean=-4.0, stddev=0.1)
+                                    #     mean=-3.0, stddev=0.1)
                                     ),
                                 bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                                     is_singular=True,
@@ -117,7 +117,7 @@ class bnn(keras.Model):
                                     loc_initializer=keras.initializers.GlorotUniform(),
                                     # loc_initializer=keras.initializers.he_normal(),
                                     # untransformed_scale_initializer=tf.random_normal_initializer(
-                                    #     mean=-4.0, stddev=0.1)
+                                    #     mean=-3.0, stddev=0.1)
                                     ),
                                 bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                                     is_singular=True,
@@ -133,7 +133,7 @@ class bnn(keras.Model):
                                     loc_initializer=keras.initializers.GlorotUniform(),
                                     # loc_initializer=keras.initializers.he_normal(),
                                     # untransformed_scale_initializer=tf.random_normal_initializer(
-                                    #     mean=-4.0, stddev=0.1)
+                                    #     mean=-3.0, stddev=0.1)
                                     ),
                                 bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                                     is_singular=True,
@@ -149,7 +149,7 @@ class bnn(keras.Model):
                                     loc_initializer=keras.initializers.GlorotUniform(),
                                     # loc_initializer=keras.initializers.he_normal(),
                                     # untransformed_scale_initializer=tf.random_normal_initializer(
-                                    #     mean=-4.0, stddev=0.1)
+                                    #     mean=-3.0, stddev=0.1)
                                     ),
                                 bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                                     is_singular=True,
@@ -162,7 +162,7 @@ class bnn(keras.Model):
                                     loc_initializer=keras.initializers.GlorotUniform(),
                                     # loc_initializer=keras.initializers.he_normal(),
                                     # untransformed_scale_initializer=tf.random_normal_initializer(
-                                    #     mean=-4.0, stddev=0.1)
+                                    #     mean=-3.0, stddev=0.1)
                                     ),
                                 bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                                     is_singular=True,
@@ -174,8 +174,9 @@ class bnn(keras.Model):
                                 kernel_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                                     loc_initializer=keras.initializers.GlorotUniform(),
                                     # loc_initializer=keras.initializers.he_normal(),
-                                    untransformed_scale_initializer=tf.random_normal_initializer(
-                                        mean=-4.0, stddev=0.1)),
+                                    # untransformed_scale_initializer=tf.random_normal_initializer(
+                                    #     mean=-3.0, stddev=0.1)
+                                    ),
                                 bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                                     is_singular=True,
                                     loc_initializer=keras.initializers.Zeros()),
@@ -187,7 +188,7 @@ class bnn(keras.Model):
                                     loc_initializer=keras.initializers.GlorotUniform(),
                                     # loc_initializer=keras.initializers.he_normal(),
                                     # untransformed_scale_initializer=tf.random_normal_initializer(
-                                    #     mean=-4.0, stddev=0.1)
+                                    #     mean=-3.0, stddev=0.1)
                                     ),
                                 bias_posterior_fn=tfp.layers.default_mean_field_normal_fn(
                                     is_singular=True,
@@ -195,10 +196,9 @@ class bnn(keras.Model):
                                 kernel_divergence_fn=divergence_fn)
 
     def constrain(self):
-        weights = self.constrained_conv.get_weights()[0]
-        bias = self.constrained_conv.get_weights()[1]
+        weights, bias = self.constrained_conv.get_weights()
         # check if it is converged
-        if self.constrained_weights is None or np.any(self.constrained_weights!=weights):
+        if (self.constrained_weights is None) or np.any(self.constrained_weights!=weights):
             # Constrain the first layer
             # Scale by 10k to avoid numerical issues while normalizing
             weights = weights*10000
@@ -269,8 +269,7 @@ class vanilla(keras.Model):
         self.dense3 = keras.layers.Dense(NUM_CLASSES)
 
     def constrain(self):
-        weights = self.constrained_conv.get_weights()[0]
-        bias = self.constrained_conv.get_weights()[1]
+        weights, bias = self.constrained_conv.get_weights()
         # check if it is converged
         if self.constrained_weights is None or np.any(self.constrained_weights!=weights):
             # Constrain the first layer

@@ -15,7 +15,6 @@ tf.config.experimental.set_memory_growth(gpus[0], True)
 
 def build_and_train(log, tb_log, ckpt_dir):
     # Set the logger
-
     utils.set_logger(log)
     logging.info("Creating the datasets...")
     dp.collect_split_extract(parent_dir=params.patch_dir)
@@ -50,45 +49,44 @@ def build_and_train(log, tb_log, ckpt_dir):
     model.build(input_shape=(None, 256, 256, 1))
     model.summary()
 
-    # # focal loss produce more guaranteed a quicker converge for training
-    # def focal_loss(labels, logits, gamma=2.0, alpha=4.0):
-    #     """
-    #     focal loss for multi-classification
-    #     FL(p_t)=-alpha(1-p_t)^{gamma}ln(p_t)
-    #     Notice: logits is probability after softmax
-    #     gradient is d(Fl)/d(p_t) not d(Fl)/d(x) as described in paper
-    #     d(Fl)/d(p_t) * [p_t(1-p_t)] = d(Fl)/d(x)
-    #     Lin, T.-Y., Goyal, P., Girshick, R., He, K., & Dollár, P. (2017).
-    #     Focal Loss for Dense Object Detection, 130(4), 485–491.
-    #     https://doi.org/10.1016/j.ajodo.2005.02.022
-    #     :param labels: ground truth labels, shape of [batch_size]
-    #     :param logits: model's output, shape of [batch_size, num_cls]
-    #     :param gamma:
-    #     :param alpha:
-    #     :return: shape of [batch_size]
-    #     """
-    #     epsilon = 1.e-9
-    #     softmax = tf.nn.softmax(logits)
-    #     num_cls = softmax.shape[1]
+    # focal loss produce more guaranteed a quicker converge for training
+    def focal_loss(labels, logits, gamma=2.0, alpha=4.0):
+        """
+        focal loss for multi-classification
+        FL(p_t)=-alpha(1-p_t)^{gamma}ln(p_t)
+        Notice: logits is probability after softmax
+        gradient is d(Fl)/d(p_t) not d(Fl)/d(x) as described in paper
+        d(Fl)/d(p_t) * [p_t(1-p_t)] = d(Fl)/d(x)
+        Lin, T.-Y., Goyal, P., Girshick, R., He, K., & Dollár, P. (2017).
+        Focal Loss for Dense Object Detection, 130(4), 485–491.
+        https://doi.org/10.1016/j.ajodo.2005.02.022
+        :param labels: ground truth labels, shape of [batch_size]
+        :param logits: model's output, shape of [batch_size, num_cls]
+        :param gamma:
+        :param alpha:
+        :return: shape of [batch_size]
+        """
+        epsilon = 1.e-9
+        softmax = tf.nn.softmax(logits)
+        num_cls = softmax.shape[1]
 
-    #     model_out = tf.math.add(softmax, epsilon)
-    #     ce = tf.math.multiply(labels, -tf.math.log(model_out))
-    #     weight = tf.math.multiply(labels, tf.math.pow(tf.math.subtract(1., model_out), gamma))
-    #     fl = tf.math.multiply(alpha, tf.math.multiply(weight, ce))
-    #     reduced_fl = tf.math.reduce_sum(fl, axis=1)
-    #     # reduced_fl = tf.reduce_sum(fl, axis=1)  # same as reduce_max
-    #     return reduced_fl
+        model_out = tf.math.add(softmax, epsilon)
+        ce = tf.math.multiply(labels, -tf.math.log(model_out))
+        weight = tf.math.multiply(labels, tf.math.pow(tf.math.subtract(1., model_out), gamma))
+        fl = tf.math.multiply(alpha, tf.math.multiply(weight, ce))
+        reduced_fl = tf.math.reduce_sum(fl, axis=1)
+        # reduced_fl = tf.reduce_sum(fl, axis=1)  # same as reduce_max
+        return reduced_fl
 
-
-    loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
-    # loss_object = focal_loss
-    lr_schedule = keras.optimizers.schedules.ExponentialDecay(
-        params.HParams['init_learning_rate'],
-        decay_steps=num_train_steps,
-        decay_rate=0.99,
-        staircase=True)
-    optimizer = keras.optimizers.RMSprop(learning_rate=lr_schedule)
-    # optimizer = keras.optimizers.Adam(lr=0.0001)
+    # loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
+    loss_object = focal_loss
+    # lr_schedule = keras.optimizers.schedules.ExponentialDecay(
+    #     params.HParams['init_learning_rate'],
+    #     decay_steps=num_train_steps,
+    #     decay_rate=0.96,
+    #     staircase=True)
+    # optimizer = keras.optimizers.RMSprop(learning_rate=0.0001)
+    optimizer = keras.optimizers.Adam(learning_rate=0.0001)
 
     train_loss = keras.metrics.Mean(name='train_loss')
     train_acc = keras.metrics.CategoricalAccuracy(name='train_accuracy')
@@ -99,8 +97,8 @@ def build_and_train(log, tb_log, ckpt_dir):
     val_acc = keras.metrics.CategoricalAccuracy(name='test_accuracy')
 
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = tb_log + current_time + '/train'
-    val_log_dir = tb_log + current_time + '/val'
+    train_log_dir = os.path.join(tb_log + current_time, 'train')
+    val_log_dir = os.path.join(tb_log + current_time, 'val')
     train_writer = tf.summary.create_file_writer(train_log_dir)
     val_writer = tf.summary.create_file_writer(val_log_dir)
 
@@ -129,18 +127,18 @@ def build_and_train(log, tb_log, ckpt_dir):
                 loss = nll + kl
 
             gradients = tape.gradient(loss, model.trainable_weights)
-            if step % 100 == 0:
-                with train_writer.as_default():
-                    for grad, t_w in zip(gradients, model.trainable_weights):
-                        if 'kernel' in t_w.name:
-                            tf.summary.histogram(t_w.name, grad, offset+step)
-                    for l in model.layers[1:]:
-                        tf.summary.scalar(l.name,  l.losses[0], step=offset+step)
             optimizer.apply_gradients(zip(gradients, model.trainable_weights))
-            with train_writer.as_default():
-                tf.summary.scalar('learning_rate',
-                                optimizer._decayed_lr(tf.float32),
-                                step=offset+step)
+            # if step % 100 == 0:
+            #     with train_writer.as_default():
+            #         for grad, t_w in zip(gradients, model.trainable_weights):
+            #             if 'kernel' in t_w.name:
+            #                 tf.summary.histogram(t_w.name, grad, offset+step)
+            #         for l in model.layers[1:]:
+            #             tf.summary.scalar(l.name,  l.losses[0], step=offset+step)
+            # with train_writer.as_default():
+            #     tf.summary.scalar('learning_rate',
+            #                     optimizer._decayed_lr(tf.float32),
+            #                     step=offset+step)
             kl_loss.update_state(kl)  
             nll_loss.update_state(nll)
             train_loss.update_state(loss)
@@ -159,12 +157,11 @@ def build_and_train(log, tb_log, ckpt_dir):
             pred = tf.math.argmax(logits, axis=1)
             corr = labels[pred == gt]
             corr_count = tf.math.reduce_sum(corr, axis=0).numpy()
-
             val_loss.update_state(loss)
             val_acc.update_state(labels, logits)
             return corr_count, total
 
-    else:
+    elif params.model_type == 'vanilla':
         @tf.function
         def train_step(images, labels):
             with tf.GradientTape() as tape:
@@ -185,14 +182,12 @@ def build_and_train(log, tb_log, ckpt_dir):
             with tf.GradientTape() as tape:
                 logits = model(images)
                 loss = loss_object(labels, logits)
-
             # number of samples for each class
             total = tf.math.reduce_sum(labels, axis=0).numpy()
             gt = tf.math.argmax(labels, axis=1)
             pred = tf.math.argmax(logits, axis=1)
             corr = labels[pred == gt]
             corr_count = tf.math.reduce_sum(corr, axis=0).numpy()
-
             val_loss.update_state(loss)
             val_acc.update_state(labels, logits)
             return corr_count, total
@@ -214,7 +209,6 @@ def build_and_train(log, tb_log, ckpt_dir):
             train_writer.flush()
 
             if epoch == 0 and step == 0:
-                
                 with val_writer.as_default():
                     tf.summary.scalar('loss',  train_loss.result(), step=offset)
                     tf.summary.scalar('accuracy', train_acc.result(), step=offset)
@@ -243,8 +237,8 @@ def build_and_train(log, tb_log, ckpt_dir):
         for step in trange(num_val_steps):
             images, labels = val_iterator.get_next()
             c, t = val_step(images, labels)
-            corr_ls += c
-            total_ls += t
+            corr_ls = [sum(x) for x in zip(corr_ls, c)]
+            total_ls = [sum(x) for x in zip(total_ls, t)]
 
         with val_writer.as_default():
             tf.summary.scalar('loss', val_loss.result(), step=offset+num_train_steps)
@@ -260,7 +254,6 @@ def build_and_train(log, tb_log, ckpt_dir):
 
         # save the best model regarding to train acc
         ckpt.step.assign_add(1)
-        
         # if val_acc.result() >= best_acc and \
         if val_loss.result() <= best_loss:
             save_path = manager.save()
@@ -272,16 +265,15 @@ def build_and_train(log, tb_log, ckpt_dir):
         # elif epoch > 10:
         else:
             stop_count += 1
-        
         if stop_count >= params.patience:
             break
 
     logging.info('\nFinished training\n')
 
 if __name__ == '__main__':
-    log = 'results/' + params.database + '/' + params.model_type
-    tb_log = 'logs/' + params.database + '/' + params.model_type
-    ckpt_dir = 'ckpts/' + params.database + '/' + params.model_type
+    log = os.path.join('results', params.database, params.model_type)
+    tb_log = os.path.join('logs', params.database, params.model_type)
+    ckpt_dir = os.path.join('ckpts', params.database, params.model_type)
     for path in [log, tb_log, ckpt_dir]:
         p_dir = os.path.dirname(path)
         if not os.path.exists(p_dir):

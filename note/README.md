@@ -275,6 +275,14 @@ Experiment:
 - using loc empirical bayes, with 0.99 learning rate decay for each epoch yield the best result.
 
 
+- deleted Samsung_L74wide_0_43583.JPG from the csv(because it's corrupted)
+
+## Week 11
+
+- change to a more distanced camera model
+- change seed in align_ds, to check if the variance of the test dataset matters. (can I do multiple draw?)
+  - or can I just copy the in distribution entropy/epistemic, such that I can do more for testing.
+- evaluate the entropy to one single full sized image.
 
 ## Note
 

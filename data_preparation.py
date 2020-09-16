@@ -30,7 +30,7 @@ def collect_dataset(data, images_dir, brand_models):
     download = False
     if not os.path.exists(images_dir):
         download = True
-        
+
     for path in dirs:
         if not os.path.exists(path):
             os.makedirs(path)
@@ -151,6 +151,10 @@ def patchify(img_path, patch_span=params.patch_span):
     img = io.imread(img_path)
     if img is None or not isinstance(img, np.ndarray):
         print('Unable to read the image: {:}'.format(img_path))
+    if params.adaptive_span:
+        v_patch_span = img.shape[0] // 256 * 256
+        h_patch_span = img.shape[1] // 256 * 256
+        patch_span = min([h_patch_span, v_patch_span, params.patch_span])
 
     center = np.divide(img.shape[:2], 2).astype(int)
     start = np.subtract(center, patch_span/2).astype(int)
@@ -251,8 +255,6 @@ def collect_split_extract(parent_dir):
 def collect_unseen():
     """collect unseen models images from the internet.
     """
- 
-    # collect odd data
     data = pd.read_csv(params.ds_csv)
     if params.database == 'dresden':
         data = data[([m in params.unseen_models for m in data['model']])]
@@ -269,6 +271,16 @@ def collect_unseen():
     patch(path=image_paths, data_id='test', parent_dir=params.unseen_dir)
     print("... Done\n")
 
+def collect_kaggle():
+    kaggle_root = os.path.join('data', 'kaggle')
+    models = os.listdir(kaggle_root)
+    parents_dir = [os.path.join(kaggle_root, m) for m in models]
+    image_paths = []
+    for p in parents_dir:
+        paths = os.listdir(p)
+        image_paths.extend([os.path.join(p, path) for path in paths])
+    patch(path=image_paths, data_id='test', parent_dir=params.kaggle_dir)
+    print("... Done\n")
 
 def parse_image(img_path, post_processing=None):
     """read label and covert to onehot vector, read images from
@@ -327,13 +339,13 @@ def post_processing(image_path, post_processing, *args):
     """
 
     image_name = [os.path.split(path)[-1] for path in image_path]
-    target_dir = os.path.join(params.image_root, 
-                    '_'.join([params.database, post_processing, '{}'.format(args[0])]))
-    target_path = [os.path.join(params.image_root, 
-                    '_'.join([params.database, post_processing, '{}'.format(args[0])]), 
+    target_dir = os.path.join(params.image_root,
+                        '_'.join([params.database, post_processing]), 
+                        '{}'.format(args[0]))
+    target_path = [os.path.join(target_dir, 
                     name) for name in image_name]
     if not os.path.exists(target_dir):
-        os.mkdir(target_dir)
+        os.makedirs(target_dir)
 
     if post_processing == 'jpeg':
         quality = args[0]
@@ -349,7 +361,6 @@ def post_processing(image_path, post_processing, *args):
     elif post_processing == 'noise':
         mean = 0
         sigma = args[0]
-        height, width = (256, 256)
         for im_path, n_path in zip(image_path, target_path):
             if not os.path.exists(n_path):
                 image = io.imread(im_path)
@@ -367,6 +378,17 @@ def post_processing(image_path, post_processing, *args):
                 blur = filters.gaussian(image, sigma=sigma, 
                                         truncate=2.0)
                 io.imsave(b_path, img_as_ubyte(blur), 
+                          check_contrast=False)
+    
+    elif post_processing == 's&p':
+        mean = 0
+        amount = args[0]
+        for im_path, n_path in zip(image_path, target_path):
+            if not os.path.exists(n_path):
+                image = io.imread(im_path)
+                noisy = random_noise(image, mode='s&p', 
+                                     amount=amount)
+                io.imsave(n_path, img_as_ubyte(noisy), 
                           check_contrast=False)
 
     return target_path
@@ -436,52 +458,12 @@ def aligned_ds(test_dir, brand_models, num_batches=None, seed=42):
     # sometimes database has more data in 'test', some has more in 'unseen'
     if num_batches is not None:
         num_test_batches = min(num_test_batches, num_batches)
+        class_batches = round(num_test_batches / len(brand_models))
+        print("class batch number of unseen ds is {}".format(class_batches))
+        num_test_batches = len(brand_models) * class_batches
 
     for images in image_paths:
         np.random.shuffle(images)
         ds.extend(images[0:class_batches * params.BATCH_SIZE])
 
     return ds, num_test_batches
-
-
-# def split_image(filename, post_processing=None, show_image=True):
-#     label =  tf.strings.split(filename, os.sep)[-1]
-#     image = io.imread(filename)
-#     image = tf.image.convert_image_dtype(image, tf.float32)
-#     if post_processing == 'jpeg':
-#         image = tf.image.adjust_jpeg_quality(image, 70)
-#     elif post_processing == 'blur':
-#         image = tfa.image.gaussian_filter2d(image, 
-#                                             filter_shape=[5, 5],
-#                                             sigma=1.1)
-#     elif post_processing == 'noise':
-#         image = add_gaussian_noise(image)
-#     elif post_processing == 'salt':
-#         image = add_salt_pepper_noise(image.numpy())
-        
-#     image = tf.clip_by_value(image, 0.0, 1.0)
-        
-#     if show_image:
-#         plt.figure()
-#         plt.imshow(image)
-#         plt.xticks([])
-#         plt.yticks([])
-#         plt.grid(False)
-#         plt.xlabel(label.numpy().decode('utf-8'))
-
-#     # divide into patches
-#     # adaptive patchify
-#     v_patch_span = image.shape[0] // 256 * 256
-#     h_patch_span = image.shape[1] // 256 * 256
-#     patch_span = min([h_patch_span, v_patch_span, params.patch_span])
-    
-#     center = np.divide(image.shape[:2], 2).astype(int)
-#     start = np.subtract(center, patch_span/2).astype(int)
-#     end = np.add(center, patch_span/2).astype(int)
-#     sub_img = image[start[0]:end[0], start[1]:end[1]]
-#     sub_img = np.asarray(sub_img)
-#     patches = view_as_blocks(sub_img[:, :, 1], (256, 256))
-
-#     images = patches.reshape((-1, 256, 256))
-#     images = images[..., tf.newaxis]
-#     return images, label

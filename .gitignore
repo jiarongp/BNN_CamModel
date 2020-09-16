@@ -8,3 +8,6 @@ logs/
 tfp_bayesian/
 results/
 venv/
+exp/
+double_checked/
+DresdenImageDB/

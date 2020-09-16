@@ -17,19 +17,16 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
 def stats(ckpt_dir, stats_fig, fname, experiment, quality_ls):
-    # collect data from unseen models
     dp.collect_unseen()
 
-    # load model
     train_size = 0
     for m in params.brand_models:
         train_size += len(os.listdir(os.path.join(params.patch_dir, 'train', m)))
-    # import BNN model
     model = model_lib.bnn(train_size)
 
     ckpt = tf.train.Checkpoint(
             step=tf.Variable(1), 
-            optimizer=tf.keras.optimizers.RMSprop(lr=params.HParams['init_learning_rate']),
+            optimizer=tf.keras.optimizers.Adam(lr=params.HParams['init_learning_rate']),
             net=model)
     manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=3)
     ckpt.restore(manager.latest_checkpoint)
@@ -68,6 +65,14 @@ def stats(ckpt_dir, stats_fig, fname, experiment, quality_ls):
                         utils.mc_out_stats(out_iter, model, 
                                             num_test_batches,
                                             params.num_monte_carlo)
+        utils.log_mc_in_out(in_entropy,
+                            out_entropy,
+                            in_epistemic,
+                            out_epistemic,
+                            out_class_count,
+                            params.num_monte_carlo,
+                            '{} with {} as parameter'.format(experiment, quality),
+                            fname)
 
         target = [('{} entropy '.format(experiment), 
                 [in_entropy, out_entropy]),
@@ -84,7 +89,8 @@ def stats(ckpt_dir, stats_fig, fname, experiment, quality_ls):
                 "true positive rate: {:.3%}, "
                 "threshold: {}, "
                 "acc: {:.3%}\n".format(opt[0], opt[1], opt[2], acc))
-            print(msg)
+            with open(fname, 'a') as f:
+                f.write(msg)
 
             ax.plot(fpr, tpr, '-',
                     label='{} quality {}: {}'.format(experiment, quality, auroc),
@@ -103,17 +109,19 @@ def stats(ckpt_dir, stats_fig, fname, experiment, quality_ls):
 
 if __name__ == '__main__':
     experiment = 'noise'
-    ckpt_dir = 'ckpts/' + params.database + '/' + params.model_type
-    stats_fig = ('results/' + params.database + '/' + params.model_type +
-                 '_'+ experiment + '_stats.png')
-    fname = ('results/' + params.database + '/' + params.model_type + 
-             '_degradation_stats.log')
+    ckpt_dir = os.path.join('ckpts', params.database, params.model_type)
+    stats_fig = os.path.join('results', params.database, 
+                params.model_type) + '_{}_stats.png'.format(experiment)
+    fname = os.path.join('results', params.database, 
+               params.model_type) + '_degradation_stats.log'
     if experiment == 'jpeg':
-        quality_ls = [90, 80, 70, 60, 50]
+        quality_ls = [95, 90, 80, 70, 60]
     elif experiment == 'blur':
         # fixed windows size and change window size
         quality_ls = [0.1, 0.5, 1.1, 1.5, 2.0]
     elif experiment == 'noise':
-        quality_ls = [0.0, 0.1, 0.5, 1.5, 2.0]
+        quality_ls = [0.0, 0.001, 0.1, 0.5, 2.0]
+    elif experiment == 's&p':
+        quality_ls = [0.01, 0.1, 0.5, 0.7]
 
     stats(ckpt_dir, stats_fig, fname, experiment, quality_ls)
