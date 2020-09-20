@@ -1,0 +1,49 @@
+{
+    "run": {
+        "name": "EnsembleCNN",
+        "train": true,
+        "evaluate": false,
+        "stats": false,
+        "mc_stats": false,
+        "degradation": false,
+        "debug": true
+    },
+    "data_loader": {
+        "name": "DresdenDataLoader",
+        "database": "dresden",
+        "database_csv": "data/dresden.csv",
+        "database_image_dir": "data/dresden",
+        "patch_dir": "data/dresden_base",  
+        "brands": ["Canon", "Canon", "Nikon", "Nikon", "Sony"],
+        "models": ["Ixus70", "Ixus55", "D200", "D70", "DSC-H50"],
+        "brand_models": [],
+        "extract_span": 1280,
+        "num_patch": 25,
+        "even_database": false,
+        "random_seed": 42
+    },
+    "model":{
+        "name": "EnsembleCNN",
+        "input_shape": {"width":256, "height":256}
+    },
+    "trainer":{
+        "name": "EnsembleTrainer",
+        "epochs": 100,
+        "batch_size": 64,
+        "lr": 0.0001,
+        "optimizer": "AdamOptimizer",
+        "num_ensemble": 10,
+        "ckpt_dir": "ckpts/dresden/ensemble",
+        "patience":3
+    },
+    "log":{
+        "log_dir": "results/dresden",
+        "train_log_file": "results/dresden/ensemble.log",
+        "eval_log_file": "results/dresden/ensemble.log",
+        "tensorboard_dir": "logs/",
+        "log_step": 150
+    },
+    "evaluate":{
+        "batch_size": 128
+    }
+  }
