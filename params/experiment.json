@@ -1,0 +1,81 @@
+{
+    "run": {
+        "name": "Experiment",
+        "train": false,
+        "evaluate": false,
+        "experiment": true
+    },
+    "model":{
+        "input_shape": {
+            "width":256, 
+            "height":256
+        }
+    },
+    "dataloader": {
+        "name": "DresdenDataLoader",
+        "database": "dresden",
+        "database_csv": "data/dresden.csv",
+        "database_image_dir": "data/dresden",
+        "patch_dir": "data/dresden_base",
+        "brands": ["Canon", "Canon", "Nikon", "Nikon", "Sony"],
+        "models": ["Ixus70", "Ixus55", "D200", "D70", "DSC-H50"],
+        "brand_models": [],
+        "batch_size": 64,
+        "extract_span": 1280,
+        "num_patch": 25,
+        "even_database": false,
+        "random_seed": 42
+    },
+    "unseen_dataloader":{
+        "name": "UnseenDresdenDataLoader",
+        "database": "dresden",
+        "database_csv": "data/dresden.csv",
+        "database_image_dir": "data/dresden",
+        "patch_dir": "data/dresden_unseen",
+        "brands": ["Agfa", "Canon", "Sony", "Samsung", "Nikon"],
+        "models": ["DC-830i", "PowerShotA640", "DSC-W170", "L74wide", "CoolPixS710"],
+        "brand_models": [],
+        "extract_span": 1280,
+        "num_patch": 25,
+        "random_seed": 42
+    },
+    "kaggle_dataloader":{
+        "name": "KaggleDataLoader",
+        "database": "kaggle",
+        "database_image_dir": "data/kaggle",
+        "patch_dir": "data/kaggle_unseen",
+        "brand_models": [],
+        "extract_span": 1280,
+        "num_patch": 25,
+        "random_seed": 42
+    },
+    "experiment":{
+        "degradation_dir": "data/degradation",
+        "random_seed": 42,
+        "softmax_stats": false,
+        "mc_stats": true
+    },
+    "softmax_stats":{
+        "model": "VanillaCNN",
+        "ckpt_dir": "ckpts/dresden/vanilla",
+        "degradation_id": ["jpeg", "blur", "noise"],
+        "degradation_factor": [70, 1.1, 2.0],
+        "histogram_path": "results/dresden/experiment/softmax_stats_hist.png",
+        "roc_path": "results/dresden/experiment/softmax_stats_roc.png"
+    },
+    "mc_stats":{
+        "model": "BayesianCNN",
+        "num_monte_carlo": 20,
+        "ckpt_dir": "ckpts/dresden/bayesian",
+        "degradation_id": ["jpeg", "blur", "noise"],
+        "degradation_factor": [70, 1.1, 2.0],
+        "entropy_histogram_path": "results/dresden/experiment/entropy_stats_hist.png",
+        "epistemic_histogram_path": "results/dresden/experiment/epistemic_stats_hist.png",
+        "roc_path": "results/dresden/experiment/mc_stats_roc.png"
+    },
+    "log":{
+        "log_dir": "results/dresden/experiment/",
+        "log_file": "results/dresden/experiment/stats.log",
+        "log_step": 150
+    }
+  }
