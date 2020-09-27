@@ -13,7 +13,7 @@ def evaluate(params):
 
     if not os.path.exists(os.path.join(params.dataloader.patch_dir, 'test')):
         msg = "... Preparing dataset for evaluation\n"
-        write_log(params.log.train_log_file, msg)
+        write_log(params.log.log_file, msg)
         # collect & split in to train, val and test & extract to patches
         dataloader = instantiate("dataloader_lib", 
                         params.dataloader.name)(params)

@@ -10,7 +10,7 @@ class BaseModel(tf.keras.Model):
     def __init__(self, params):
         super(BaseModel, self).__init__()
         self.params = params
-        self.log_file = self.params.log.train_log_file
+        self.log_file = self.params.log.log_file
         self.num_cls = len(self.params.dataloader.brand_models)
 
     def save(self, ckpt_path):
@@ -28,13 +28,17 @@ class BaseModel(tf.keras.Model):
 class VanillaCNN(BaseModel):
     def __init__(self, params):
         super(VanillaCNN, self).__init__(params)
+        # input_shape = (self.params.model.input_shape.width,
+        #     self.params.model.input_shape.height, 1)
+        
+        # self.input_layer = keras.layers.Input(shape=input_shape, dtype='float32')
         self.constrained_conv_layer = \
             keras.layers.Conv2D(3, (5, 5), 
-                padding='same', 
+                padding='same',
                 input_shape=[None, 
-                self.params.model.input_shape.width, 
-                self.params.model.input_shape.height,
-                1])
+                    self.params.model.input_shape.width, 
+                    self.params.model.input_shape.height, 
+                    1])
         self.conv1 = keras.layers.Conv2D(
                         96, kernel_size=7,
                         strides=2, padding='same')
@@ -56,6 +60,7 @@ class VanillaCNN(BaseModel):
         self.dense3 = keras.layers.Dense(self.num_cls)
 
     def call(self, x):
+        # x = self.input_layer(x)
         x = self.constrained_conv_layer(x)
         x = self.conv1(x)
         x = self.bn1(x)

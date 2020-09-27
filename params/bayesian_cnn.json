@@ -3,11 +3,9 @@
         "name": "BayesianCNN",
         "train": false,
         "evaluate": true,
-        "stats": false,
-        "mc_stats": false,
-        "degradation": false
+        "experiment": false
     },
-    "data_loader": {
+    "dataloader": {
         "name": "DresdenDataLoader",
         "database": "dresden",
         "database_csv": "data/dresden.csv",
@@ -37,12 +35,11 @@
     },
     "log":{
         "log_dir": "results/dresden",
-        "train_log_file": "results/dresden/bayesian.log",
-        "eval_log_file": "results/dresden/bayesian.log",
+        "log_file": "results/dresden/bayesian.log",
         "tensorboard_dir": "logs/",
         "log_step": 150
     },
     "evaluate":{
-        "batch_size": 128
+        "batch_size": 64
     }
   }

@@ -16,7 +16,7 @@ class BaseDataLoader(object):
         self.img_path_ls = []
         self.params = params
         self.brand_models = self.params.dataloader.brand_models
-        self.log_file = self.params.log.train_log_file
+        self.log_file = self.params.log.log_file
 
     def split_dataset(self, seed):
         """Split dataset into train, validation and test.
@@ -161,22 +161,27 @@ class UnseenDresdenDataLoader(DresdenDataLoader):
         super(UnseenDresdenDataLoader, self).__init__(params)
         self.brand_models = self.params.unseen_dataloader.brand_models
         self.images_dir = self.params.unseen_dataloader.database_image_dir
+        self.patch_dir = self.params.unseen_dataloader.patch_dir
+        self.num_patch = self.params.unseen_dataloader.num_patch
+        self.extract_span = self.params.unseen_dataloader.extract_span
 
     def load_data(self):
         # download images
         self.collect_dataset()
         for brand_model in self.brand_models:
-            img_path_ls = os.listdir(os.path.join(
+            img_names = os.listdir(os.path.join(
                             self.images_dir,
                             brand_model))
+            img_path_ls = [os.path.join(self.images_dir, brand_model, name) 
+                            for name in img_names]
             print("... Extracting patches from {} images\n"
                     .format(brand_model))
             extract_patch(
                 img_path_ls=img_path_ls,
                 ds_id='.', 
-                patch_dir=self.params.unseen_dataloader.patch_dir,
-                num_patch=self.params.unseen_dataloader.num_patch,
-                extract_span=self.params.unseen_dataloader.extract_span)
+                patch_dir= self.patch_dir,
+                num_patch=self.num_patch,
+                extract_span=self.extract_span)
             print("... Done\n")
 
 class KaggleDataLoader(UnseenDresdenDataLoader):
@@ -184,3 +189,6 @@ class KaggleDataLoader(UnseenDresdenDataLoader):
         super(KaggleDataLoader, self).__init__(params)
         self.brand_models = self.params.kaggle_dataloader.brand_models
         self.images_dir = self.params.kaggle_dataloader.database_image_dir
+        self.patch_dir = self.params.kaggle_dataloader.patch_dir
+        self.num_patch = self.params.kaggle_dataloader.num_patch
+        self.extract_span = self.params.kaggle_dataloader.extract_span

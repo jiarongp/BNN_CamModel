@@ -9,7 +9,7 @@ tf.config.experimental.set_memory_growth(gpus[0], True)
 
 def train(params):
     msg = "... Preparing dataset for training\n"
-    write_log(params.log.train_log_file, msg)
+    write_log(params.log.log_file, msg)
     for b, m in zip(params.dataloader.brands, 
                             params.dataloader.models):
         params.dataloader.brand_models.append("_".join([b, m]))

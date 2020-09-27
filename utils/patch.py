@@ -91,5 +91,6 @@ def patchify(img_path, extract_span):
     end = np.add(center, extract_span/2).astype(int)
     sub_img = img[start[0]:end[0], start[1]:end[1]]
     sub_img = np.asarray(sub_img)
+    
     patches = view_as_blocks(sub_img[:, :, 1], (256, 256))
     return patches

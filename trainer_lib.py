@@ -14,7 +14,7 @@ class BaseTrainer(object):
         self.constrained_weights = None
         self.brand_models = self.params.dataloader.brand_models
         self.num_cls = len(self.brand_models)
-        self.log_file = self.params.log.train_log_file
+        self.log_file = self.params.log.log_file
         self.train_loss = keras.metrics.Mean(
                         name='self.train_loss')
         self.train_acc = keras.metrics.CategoricalAccuracy(
@@ -207,7 +207,8 @@ class VanillaTrainer(BaseTrainer):
                     write_log(self.log_file, msg)
 
             # validation
-            corr_ls = total_ls = [0 for x in self.brand_models]
+            corr_ls = [0 for x in self.brand_models]
+            total_ls = [0 for x in self.brand_models]
             for step in trange(self.num_val_steps):
                 images, labels = val_iter.get_next()
                 c, t = self.eval_step(images, labels)
@@ -249,7 +250,8 @@ class VanillaTrainer(BaseTrainer):
         self.eval_loss.reset_states()
         self.eval_acc.reset_states()
 
-        corr_ls = total_ls = [0 for x in self.brand_models]
+        corr_ls = [0 for x in self.brand_models]
+        total_ls = [0 for x in self.brand_models]
         for step in trange(self.num_test_steps):
             images, labels = test_iter.get_next()
             c, t = self.eval_step(images, labels)
@@ -309,6 +311,7 @@ class BayesianTrainer(BaseTrainer):
             decay_rate=self.params.trainer.decay_rate,
             staircase=True)
         self.optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
+        self.loss_object = self.focal_loss
         self.kl_loss = keras.metrics.Mean(name='kl_loss')
         self.nll_loss = keras.metrics.Mean(name='nll_loss')
 
@@ -398,7 +401,8 @@ class BayesianTrainer(BaseTrainer):
                     write_log(self.log_file, msg)
 
             # validation
-            corr_ls = total_ls = [0 for x in self.brand_models]
+            corr_ls = [0 for x in self.brand_models]
+            total_ls = [0 for x in self.brand_models]
             for step in trange(self.num_val_steps):
                 images, labels = val_iter.get_next()
                 c, t = self.eval_step(images, labels)
@@ -441,7 +445,11 @@ class BayesianTrainer(BaseTrainer):
         self.eval_acc.reset_states()
         self.eval_loss.reset_states()
 
-        corr_ls = total_ls = [0 for x in self.brand_models]
+        corr_ls = [0 for x in self.brand_models]
+        total_ls = [0 for x in self.brand_models]
+
+        print(self.model.constrained_conv_layer.weights[0])
+
         for step in trange(self.num_test_steps):
             images, labels = test_iter.get_next()
             c, t = self.eval_step(images, labels)

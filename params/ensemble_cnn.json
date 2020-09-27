@@ -38,8 +38,7 @@
     },
     "log":{
         "log_dir": "results/dresden",
-        "train_log_file": "results/dresden/ensemble.log",
-        "eval_log_file": "results/dresden/ensemble.log",
+        "log_file": "results/dresden/ensemble.log",
         "tensorboard_dir": "logs/",
         "log_step": 150
     },

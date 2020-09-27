@@ -2,6 +2,7 @@ import os
 import numpy as np
 import tensorflow as tf
 from functools import partial
+from multiprocessing import Pool
 from skimage import io, filters, img_as_ubyte
 from skimage.util import random_noise
 from tqdm import tqdm, trange
@@ -92,8 +93,28 @@ def build_dataset(patch_dir,
         iterator = iter(dataset)
         return iterator
 
-def post_processing(img_paths, img_root, database,
-                    post_processing, *args):
+def degradate(img_path_ls, img_root, database,
+                degradation_id, factor):
+    target_dir = os.path.join(img_root,
+                    '_'.join([database, degradation_id]),
+                    '{}'.format(factor))
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
+
+    args_ls = []
+    for img_path in img_path_ls:
+        args_ls += [{'img_path': img_path,
+                    'target_dir': target_dir,
+                    'post_processing':degradation_id,
+                    'factor': factor}]
+    target_path_ls = []
+    with Pool() as pool:
+        target_path_ls.extend(pool.map(post_processing, args_ls))
+
+    return target_path_ls
+
+
+def post_processing(arg):
     """offline implementation for post processing. The offline version 
     images have different value compared to the online version (offline
     images are all integer values).offline is closer to real world case 
@@ -107,54 +128,37 @@ def post_processing(img_paths, img_root, database,
     Return:
         target_path: path of the saved post process images.
     """
-    image_name = [os.path.split(path)[-1] for path in img_paths]
-    target_dir = os.path.join(img_root,
-                        '_'.join([database, post_processing]),
-                        '{}'.format(args[0]))
-    target_paths = [os.path.join(target_dir, 
-                    name) for name in image_name]
-    if not os.path.exists(target_dir):
-        os.makedirs(target_dir)
-    if post_processing == 'jpeg':
-        quality = args[0]
-        target_paths = [os.path.splitext(path)[0] + '.jpg'
-                       for path in target_paths]
-        for img_path, j_path in zip(img_paths, target_paths):
-            if not os.path.exists(j_path):
-                im = io.imread(img_path)
-                io.imsave(j_path, im, plugins='pil', 
-                          quality=quality, check_contrast=False)
-    # Adding Gaussian Noise
-    elif post_processing == 'noise':
-        mean = 0
-        sigma = args[0]
-        for img_path, n_path in zip(img_paths, target_paths):
-            if not os.path.exists(n_path):
-                image = io.imread(img_path)
-                noisy = random_noise(image, mode='gaussian', 
-                                     mean=0, var=sigma**2)
-                io.imsave(n_path, img_as_ubyte(noisy), 
-                          check_contrast=False)
-    # Adding Gaussian Blur
-    elif post_processing == 'blur':
-        sigma = args[0]
-        for img_path, b_path in zip(img_paths, target_paths):
-            if not os.path.exists(b_path): 
-                image = io.imread(img_path)
-                blur = filters.gaussian(image, sigma=sigma, 
-                                        truncate=2.0)
-                io.imsave(b_path, img_as_ubyte(blur), 
-                          check_contrast=False)
-    elif post_processing == 's&p':
-        mean = 0
-        amount = args[0]
-        for img_path, s_path in zip(img_paths, target_paths):
-            if not os.path.exists(s_path):
-                image = io.imread(img_path)
-                noisy = random_noise(image, mode='s&p', 
-                                     amount=amount)
-                io.imsave(s_path, img_as_ubyte(noisy), 
-                          check_contrast=False)
-    return target_paths
+    image_name = os.path.split(arg['img_path'])[-1]
+    target_path = os.path.join(arg['target_dir'], image_name)
 
+    if arg['post_processing'] == 'jpeg':
+        target_path = os.path.splitext(target_path)[0] + '.jpg'
+        if not os.path.exists(target_path):
+            img = io.imread(arg['img_path'])
+            io.imsave(target_path, img, plugins='pil', 
+                        quality=arg['factor'], check_contrast=False)
+    # Adding Gaussian Noise
+    elif arg['post_processing'] == 'noise':
+        if not os.path.exists(target_path):
+            img = io.imread(arg['img_path'])
+            noisy = random_noise(img, mode='gaussian', 
+                                    mean=0, var=arg['factor']**2)
+            io.imsave(target_path, img_as_ubyte(noisy), 
+                        check_contrast=False)
+    # Adding Gaussian Blur
+    elif arg['post_processing'] == 'blur':
+        if not os.path.exists(target_path): 
+            img = io.imread(arg['img_path'])
+            blur = filters.gaussian(img, sigma=arg['factor'], 
+                                    truncate=2.0)
+            io.imsave(target_path, img_as_ubyte(blur), 
+                        check_contrast=False)
+    elif arg['post_processing'] == 's&p':
+        if not os.path.exists(target_path):
+            img = io.imread(arg['img_path'])
+            noisy = random_noise(img, mode='s&p', 
+                                    amount=arg['factor'])
+            io.imsave(target_path, img_as_ubyte(noisy), 
+                          check_contrast=False)
+    return target_path
 
