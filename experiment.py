@@ -4,7 +4,7 @@ import tensorflow as tf
 from utils.data_preparation import build_dataset, post_processing
 from utils.log import write_log
 from utils.misc import instantiate
-from experiment_lib import SoftmaxStats, MCStats
+from experiment_lib import SoftmaxStats, MCStats, EnsembleStats
 
 def experiment(params):
     msg = "... Preparing dataset for statistics experiment\n"
@@ -42,3 +42,9 @@ def experiment(params):
                     params.mc_stats.model)(params, examples_per_epoch)
         mc_stats = MCStats(params, model)
         mc_stats.experiment()
+
+    if params.experiment.ensemble_stats:
+        model = instantiate("model_lib",
+                    params.ensemble_stats.model)(params)
+        ensemble_stats = EnsembleStats(params, model)
+        ensemble_stats.experiment()

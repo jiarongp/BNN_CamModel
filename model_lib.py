@@ -20,7 +20,7 @@ class BaseModel(tf.keras.Model):
 
     def restore(self, ckpt_path):
         print("... Loading model from {}\n".format(ckpt_path))
-        load_status = self.load_weights(ckpt_path)
+        load_status = self.load_weights(ckpt_path).expect_partial()
         load_status.assert_consumed()
         print("... Model loaded.\n")
 

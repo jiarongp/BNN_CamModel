@@ -46,16 +46,16 @@ def histogram(data, labels, title, xlabel, fname):
 
 def plot_curve(plotname,
                 x_list, y_list, area_list,
-                xlabel, ylabel, 
+                xlabel, ylabel, labels,
                 suptitle, fname, rows=1):
     cols = len(plotname)
     fig = plt.figure(figsize=(5*cols, 5*rows))
     sns.set()
-    for c, (x_ls, y_ls, area_ls) in enumerate(zip(x_list, y_list, area_list)):
+    for c, (x_ls, y_ls, area_ls, label) in enumerate(zip(x_list, y_list, area_list, labels)):
         for i, (name, x, y, area) in enumerate(zip(plotname, x_ls, y_ls, area_ls)):
             ax = fig.add_subplot(rows, cols, i+1)
             ax.plot(x, y, '-',
-                    label='AUROC:{}'.format(area),
+                    label='{} AUROC:{}'.format(label, area),
                     lw=2, color=color_palette[c])
             ax.plot([0, 1], 'k-', lw=2)
             ax.legend(fontsize=10)

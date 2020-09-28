@@ -94,7 +94,7 @@ class BaseTrainer(object):
                         self.params.trainer.ckpt_dir,
                         max_to_keep=3)
         status = self.ckpt.restore(
-                    self.manager.latest_checkpoint).expect_partial()
+                    self.manager.latest_checkpoint)
         if self.manager.latest_checkpoint:
             status.assert_existing_objects_matched()
             msg = ("\nRestored from {}\n".format(self.manager.latest_checkpoint))
@@ -105,17 +105,17 @@ class BaseTrainer(object):
     def constrained_conv_update(self):
         weights = self.model.constrained_conv_layer.weights[0]
         # check if it is converged
-        if (self.constrained_weights is None) or \
-            keras.backend.any(self.constrained_weights!=weights):
+        # if (self.constrained_weights is None) or \
+        #     keras.backend.any(self.constrained_weights!=weights):
             # Constrain the first layer
             # Kernel size is 5 x 5 
             # Set central values to zero to exlude them from the normalization step
-            center = int(weights.shape[0]/2)
-            for i in range(weights.shape[-1]):
-                weights[center, center, 0, i].assign(0.)
-                weights[:, :, 0, i].assign(tf.math.divide(weights[:, :, 0, i],
-                                        tf.math.reduce_sum(weights[:, :, 0, i])))
-                weights[center, center, 0, i].assign(-1.)
+        center = int(weights.shape[0]/2)
+        for i in range(weights.shape[-1]):
+            weights[center, center, 0, i].assign(0.)
+            weights[:, :, 0, i].assign(tf.math.divide(weights[:, :, 0, i],
+                                    tf.math.reduce_sum(weights[:, :, 0, i])))
+            weights[center, center, 0, i].assign(-1.)
         self.model.constrained_conv_layer.weights[0].assign(weights)
         self.constrained_weights = weights
 
@@ -142,17 +142,17 @@ class VanillaTrainer(BaseTrainer):
                 self.model.trainable_weights))
         self.train_loss.update_state(loss)
         self.train_acc.update_state(labels, logits)
-        # if step % 150 == 0:
-        #     with self.train_writer.as_default():
-        #         tf.summary.histogram(
-        #             'constrained_conv_grad', 
-        #             gradients[0],
-        #             self.step_idx)
-        #         tf.summary.histogram(
-        #             'constrained_conv_weights',
-        #             self.model.constrained_conv_layer.weights[0],
-        #             self.step_idx)
-        #     self.train_writer.flush()
+        if self.step_idx % 150 == 0:
+            with self.train_writer.as_default():
+                tf.summary.histogram(
+                    'constrained_conv_grad', 
+                    gradients[0],
+                    self.step_idx)
+                tf.summary.histogram(
+                    'constrained_conv_weights',
+                    self.model.constrained_conv_layer.weights[0],
+                    self.step_idx)
+            self.train_writer.flush()
 
     @tf.function
     def eval_step(self, images, labels):
@@ -229,13 +229,14 @@ class VanillaTrainer(BaseTrainer):
                 write_log(self.log_file, msg)
             write_log(self.log_file, '\n')
 
-            self.ckpt.step.assign_add(1)
+            # self.ckpt.step.assign_add(1)
             if self.eval_loss.result() < self.best_loss:
                 self.best_acc = self.eval_acc.result()
                 self.best_loss = self.eval_loss.result()
                 stop_count = 0
                 save_path = self.manager.save()
-                msg = "Saved checkpoint for epoch {}: {}\n\n".format(epoch, save_path)
+                # self.model.save(self.params.trainer.ckpt_dir)
+                msg = "Saved checkpoint for epoch {}: {}\n\n".format(epoch, self.params.trainer.ckpt_dir)
                 write_log(self.log_file, msg)
             else:
                 stop_count += 1
@@ -246,12 +247,15 @@ class VanillaTrainer(BaseTrainer):
         write_log(self.log_file, msg)
 
     def evaluate(self, test_iter):
+        self.model.build(input_shape=(None, 256, 256, 1))
         self.checkpoint_init()
-        self.eval_loss.reset_states()
+        # self.model.restore(self.params.trainer.ckpt_dir)
         self.eval_acc.reset_states()
+        self.eval_loss.reset_states()
 
         corr_ls = [0 for x in self.brand_models]
         total_ls = [0 for x in self.brand_models]
+        print(self.model.constrained_conv_layer.get_weights())
         for step in trange(self.num_test_steps):
             images, labels = test_iter.get_next()
             c, t = self.eval_step(images, labels)
@@ -329,17 +333,17 @@ class BayesianTrainer(BaseTrainer):
         self.nll_loss.update_state(nll)
         self.train_loss.update_state(loss)
         self.train_acc.update_state(labels, logits)
-        # if step % 150 == 0:
-        #     with self.train_writer.as_default():
-        #         tf.summary.histogram(
-        #             'constrained_conv_grad', 
-        #             gradients[0],
-        #             self.step_idx)
-        #         tf.summary.histogram(
-        #             'constrained_conv_weights',
-        #             self.model.constrained_conv_layer.weights[0],
-        #             self.step_idx)
-        #     self.train_writer.flush(
+        if self.step_idx % 150 == 0:
+            with self.train_writer.as_default():
+                tf.summary.histogram(
+                    'constrained_conv_grad', 
+                    gradients[0],
+                    self.step_idx)
+                tf.summary.histogram(
+                    'constrained_conv_weights',
+                    self.model.constrained_conv_layer.weights[0],
+                    self.step_idx)
+            self.train_writer.flush()
 
     @tf.function
     def eval_step(self, images, labels):
@@ -441,15 +445,14 @@ class BayesianTrainer(BaseTrainer):
         write_log(self.log_file, msg)
 
     def evaluate(self, test_iter):
+        self.model.build(input_shape=(None, 256, 256, 1))
         self.checkpoint_init()
         self.eval_acc.reset_states()
         self.eval_loss.reset_states()
 
         corr_ls = [0 for x in self.brand_models]
         total_ls = [0 for x in self.brand_models]
-
-        print(self.model.constrained_conv_layer.weights[0])
-
+        print(self.model.constrained_conv_layer.weights[0][2, 2, 0, :])
         for step in trange(self.num_test_steps):
             images, labels = test_iter.get_next()
             c, t = self.eval_step(images, labels)

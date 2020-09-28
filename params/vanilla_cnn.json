@@ -29,22 +29,11 @@
         "batch_size": 64,
         "lr": 0.0001,
         "optimizer": "AdamOptimizer",
-        "ckpt_dir": "ckpts/dresden/vanilla",
-        "patience":3
+        "ckpt_dir": "ckpts/dresden/vanilla/",
+        "patience":2
     },    
     "evaluate":{
-        "batch_size": 128
-    },
-    "experiment":{
-        "degradation_dir": "data/degradation",
-        "random_seed": 42,
-        "softmax_stats": true
-    },
-    "softmax_stats":{
-        "degradation_id": ["jpeg", "blur", "noise"],
-        "degradation_factor": [70, 1.1, 2.0],
-        "histogram_path": "results/dresden/experiment/plot/softmax_stats_hist.png",
-        "log_file": "results/dresden/experiment/softmax_stats.log"
+        "batch_size": 64
     },
     "log":{
         "log_dir": "results/dresden",

@@ -27,11 +27,11 @@
         "name": "BayesianTrainer",
         "epochs": 100,
         "batch_size": 64,
-        "lr": 0.0001,
+        "lr": 0.00001,
         "decay_rate": 0.98,
         "optimizer": "AdamOptimizer",
-        "ckpt_dir": "ckpts/dresden/bayesian",
-        "patience":3
+        "ckpt_dir": "ckpts/dresden/bayesian/",
+        "patience":2
     },
     "log":{
         "log_dir": "results/dresden",
