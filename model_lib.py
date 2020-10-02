@@ -13,17 +13,14 @@ class BaseModel(tf.keras.Model):
         self.log_file = self.params.log.log_file
         self.num_cls = len(self.params.dataloader.brand_models)
 
-    def save(self, ckpt_path):
-        print("... Saving model to {}.\n".format(ckpt_path))
-        self.save_weights(ckpt_path)
-        print("... Model Saved.\n")
-
-    def restore(self, ckpt_path):
-        print("... Loading model from {}\n".format(ckpt_path))
-        load_status = self.load_weights(ckpt_path).expect_partial()
-        load_status.assert_consumed()
-        print("... Model loaded.\n")
-
+    def constrained_conv_update(self):
+        weights = self.constrained_conv_layer.weights[0]
+        for i in range(weights.shape[-1]):
+            weights[2, 2, 0, i].assign(0.)
+            weights[:, :, 0, i].assign(tf.math.divide(weights[:, :, 0, i],
+                                    tf.math.reduce_sum(weights[:, :, 0, i])))
+            weights[2, 2, 0, i].assign(-1.)
+        self.constrained_conv_layer.weights[0].assign(weights)
 
 class VanillaCNN(BaseModel):
     def __init__(self, params):
@@ -59,8 +56,9 @@ class VanillaCNN(BaseModel):
         self.dense2 = keras.layers.Dense(200)
         self.dense3 = keras.layers.Dense(self.num_cls)
 
-    def call(self, x):
-        # x = self.input_layer(x)
+    def call(self, x, training=False):
+        if training:
+            self.constrained_conv_update()
         x = self.constrained_conv_layer(x)
         x = self.conv1(x)
         x = self.bn1(x)
@@ -178,7 +176,9 @@ class BayesianCNN(BaseModel):
                     loc_initializer=keras.initializers.Zeros()),
                 kernel_divergence_fn=self.divergence_fn)
 
-    def call(self, x):
+    def call(self, x, training=False):
+        if training:
+            self.constrained_conv_update()
         x = self.constrained_conv_layer(x)
         x = self.variational_conv1(x)
         x = keras.layers.MaxPool2D(pool_size=3,

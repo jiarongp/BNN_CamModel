@@ -1,12 +1,8 @@
 {
     "run": {
         "name": "EnsembleCNN",
-        "train": true,
-        "evaluate": false,
-        "stats": false,
-        "mc_stats": false,
-        "degradation": false,
-        "debug": true
+        "train": false,
+        "evaluate": false
     },
     "data_loader": {
         "name": "DresdenDataLoader",

@@ -31,9 +31,9 @@ def train(params):
     val_iter = build_dataset(params.dataloader.patch_dir, 
                             params.dataloader.brand_models,
                             'val', params.trainer.batch_size)
-    test_iter = build_dataset(params.dataloader.patch_dir, 
-                            params.dataloader.brand_models,
-                            'test', params.evaluate.batch_size)
+    # test_iter = build_dataset(params.dataloader.patch_dir, 
+    #                         params.dataloader.brand_models,
+    #                         'test', params.evaluate.batch_size)
     examples_per_epoch = 0
     for m in params.dataloader.brand_models:
         examples_per_epoch += len(os.listdir(os.path.join(
@@ -48,4 +48,4 @@ def train(params):
     trainer = instantiate("trainer_lib",
                             params.trainer.name)(params, model)
     trainer.train(train_iter, val_iter)
-    trainer.evaluate(test_iter)
+    # trainer.evaluate(test_iter)

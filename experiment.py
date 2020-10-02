@@ -4,15 +4,16 @@ import tensorflow as tf
 from utils.data_preparation import build_dataset, post_processing
 from utils.log import write_log
 from utils.misc import instantiate
-from experiment_lib import SoftmaxStats, MCStats, EnsembleStats
+from experiment_lib import SoftmaxStats, MCStats, MultiMCStats, EnsembleStats, MCDegradationStats
 
 def experiment(params):
     msg = "... Preparing dataset for statistics experiment\n"
     write_log(params.log.log_file, msg)
 
-    for b, m in zip(params.dataloader.brands, 
-                    params.dataloader.models):
-        params.dataloader.brand_models.append("_".join([b, m]))
+    if not params.run.train:
+        for b, m in zip(params.dataloader.brands, 
+                        params.dataloader.models):
+            params.dataloader.brand_models.append("_".join([b, m]))
     for b, m in zip(params.unseen_dataloader.brands, 
                     params.unseen_dataloader.models):
         params.unseen_dataloader.brand_models.append("_".join([b, m]))
@@ -42,6 +43,28 @@ def experiment(params):
                     params.mc_stats.model)(params, examples_per_epoch)
         mc_stats = MCStats(params, model)
         mc_stats.experiment()
+
+    if params.experiment.multi_mc_stats:
+        examples_per_epoch = 0
+        for m in params.dataloader.brand_models:
+            examples_per_epoch += len(os.listdir(os.path.join(
+                                    params.dataloader.patch_dir, 
+                                    "train", m)))
+        model = instantiate("model_lib",
+                    params.multi_mc_stats.model)(params, examples_per_epoch)
+        multi_mc_stats = MultiMCStats(params, model)
+        multi_mc_stats.experiment()
+
+    if params.experiment.mc_degradation_stats:
+        examples_per_epoch = 0
+        for m in params.dataloader.brand_models:
+            examples_per_epoch += len(os.listdir(os.path.join(
+                                    params.dataloader.patch_dir, 
+                                    "train", m)))
+        model = instantiate("model_lib",
+                    params.mc_degradation_stats.model)(params, examples_per_epoch)
+        mc_degradation_stats = MCDegradationStats(params, model)
+        mc_degradation_stats.experiment()
 
     if params.experiment.ensemble_stats:
         model = instantiate("model_lib",

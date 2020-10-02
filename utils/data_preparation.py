@@ -151,7 +151,8 @@ def post_processing(arg):
             img = io.imread(arg['img_path'])
             blur = filters.gaussian(img, sigma=arg['factor'], 
                                     truncate=2.0)
-            io.imsave(target_path, img_as_ubyte(blur), 
+            # print(blur)
+            io.imsave(target_path, img_as_ubyte(blur),
                         check_contrast=False)
     elif arg['post_processing'] == 's&p':
         if not os.path.exists(target_path):

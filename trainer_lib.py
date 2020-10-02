@@ -4,6 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tqdm import trange
 from utils.log import write_log
+from utils.visualization import plot_weight_posteriors
 from model_lib import VanillaCNN
 keras = tf.keras
 
@@ -25,7 +26,8 @@ class BaseTrainer(object):
                     name='eval_accuracy')
         self.optimizer = keras.optimizers.Adam(
                             learning_rate=self.params.trainer.lr)
-        self.loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
+        # self.loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
+        self.loss_object = self.focal_loss
 
     # focal loss produce more guaranteed a quicker converge for training
     def focal_loss(self, labels, logits, gamma=2.0, alpha=4.0):
@@ -96,28 +98,28 @@ class BaseTrainer(object):
         status = self.ckpt.restore(
                     self.manager.latest_checkpoint)
         if self.manager.latest_checkpoint:
-            status.assert_existing_objects_matched()
+            # status.assert_existing_objects_matched()
             msg = ("\nRestored from {}\n".format(self.manager.latest_checkpoint))
         else:
             msg = ("\nInitializing from scratch.\n")
         write_log(self.log_file, msg)
 
-    def constrained_conv_update(self):
-        weights = self.model.constrained_conv_layer.weights[0]
-        # check if it is converged
-        # if (self.constrained_weights is None) or \
-        #     keras.backend.any(self.constrained_weights!=weights):
-            # Constrain the first layer
-            # Kernel size is 5 x 5 
-            # Set central values to zero to exlude them from the normalization step
-        center = int(weights.shape[0]/2)
-        for i in range(weights.shape[-1]):
-            weights[center, center, 0, i].assign(0.)
-            weights[:, :, 0, i].assign(tf.math.divide(weights[:, :, 0, i],
-                                    tf.math.reduce_sum(weights[:, :, 0, i])))
-            weights[center, center, 0, i].assign(-1.)
-        self.model.constrained_conv_layer.weights[0].assign(weights)
-        self.constrained_weights = weights
+    # def constrained_conv_update(self):
+    #     weights = self.model.constrained_conv_layer.weights[0]
+    #     # check if it is converged
+    #     # if (self.constrained_weights is None) or \
+    #     #     keras.backend.any(self.constrained_weights!=weights):
+    #         # Constrain the first layer
+    #         # Kernel size is 5 x 5 
+    #         # Set central values to zero to exlude them from the normalization step
+    #     center = int(weights.shape[0]/2)
+    #     for i in range(weights.shape[-1]):
+    #         weights[center, center, 0, i].assign(0.)
+    #         weights[:, :, 0, i].assign(tf.math.divide(weights[:, :, 0, i],
+    #                                 tf.math.reduce_sum(weights[:, :, 0, i])))
+    #         weights[center, center, 0, i].assign(-1.)
+    #     self.model.constrained_conv_layer.weights[0].assign(weights)
+    #     self.constrained_weights = weights
 
 
 
@@ -135,7 +137,7 @@ class VanillaTrainer(BaseTrainer):
     @tf.function
     def train_step(self, images, labels):
         with tf.GradientTape() as tape:
-            logits = self.model(images)
+            logits = self.model(images, training=True)
             loss = self.loss_object(labels, logits)
         gradients = tape.gradient(loss, self.model.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients,
@@ -190,7 +192,7 @@ class VanillaTrainer(BaseTrainer):
                 images, labels = train_iter.get_next()
                 # tf.config.experimental_run_functions_eagerly(True)
                 self.train_step(images, labels)
-                self.constrained_conv_update()
+                # self.constrained_conv_update()
                 self.train_writer.flush()
 
                 with self.train_writer.as_default():
@@ -314,15 +316,37 @@ class BayesianTrainer(BaseTrainer):
             decay_steps=self.num_train_steps,
             decay_rate=self.params.trainer.decay_rate,
             staircase=True)
-        self.optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
-        self.loss_object = self.focal_loss
+        self.optimizer = keras.optimizers.Adam(learning_rate=self.params.trainer.lr)
         self.kl_loss = keras.metrics.Mean(name='kl_loss')
         self.nll_loss = keras.metrics.Mean(name='nll_loss')
+    
+    def plot_weights(self, prior_fname, posterior_fname):
+        names = [layer.name for layer in self.model.layers
+                    if 'flipout' in layer.name]
+        # prior distribution of kernel
+        pm_vals = [layer.kernel_prior.mean() 
+                    for layer in self.model.layers
+                    if 'flipout' in layer.name]
+        ps_vals = [layer.kernel_prior.stddev()
+                    for layer in self.model.layers
+                    if 'flipout' in layer.name] 
+        # posterior distribution of kernel
+        qm_vals = [layer.kernel_posterior.mean() 
+                for layer in self.model.layers
+                if 'flipout' in layer.name]
+        qs_vals = [layer.kernel_posterior.stddev() 
+                for layer in self.model.layers
+                if 'flipout' in layer.name]
+
+        plot_weight_posteriors(names, pm_vals, ps_vals, 
+                                fname=prior_fname)
+        plot_weight_posteriors(names, qm_vals, qs_vals, 
+                                fname=posterior_fname)
 
     @tf.function
     def train_step(self, images, labels):
         with tf.GradientTape() as tape:
-            logits = self.model(images)
+            logits = self.model(images, training=True)
             nll = self.loss_object(labels, logits)
             kl = sum(self.model.losses)
             loss = nll + kl
@@ -333,17 +357,17 @@ class BayesianTrainer(BaseTrainer):
         self.nll_loss.update_state(nll)
         self.train_loss.update_state(loss)
         self.train_acc.update_state(labels, logits)
-        if self.step_idx % 150 == 0:
-            with self.train_writer.as_default():
-                tf.summary.histogram(
-                    'constrained_conv_grad', 
-                    gradients[0],
-                    self.step_idx)
-                tf.summary.histogram(
-                    'constrained_conv_weights',
-                    self.model.constrained_conv_layer.weights[0],
-                    self.step_idx)
-            self.train_writer.flush()
+        # if self.step_idx % 150 == 0:
+        #     with self.train_writer.as_default():
+        #         tf.summary.histogram(
+        #             'constrained_conv_grad', 
+        #             gradients[0],
+        #             self.step_idx)
+        #         tf.summary.histogram(
+        #             'constrained_conv_weights',
+        #             self.model.constrained_conv_layer.weights[0],
+        #             self.step_idx)
+        #     self.train_writer.flush()
 
     @tf.function
     def eval_step(self, images, labels):
@@ -378,12 +402,14 @@ class BayesianTrainer(BaseTrainer):
             self.train_acc.reset_states()
             self.kl_loss.reset_states()
             self.nll_loss.reset_states()
-
+            
+            msg = "{}\n".format(self.model.constrained_conv_layer.weights[0])
+            write_log(self.log_file, msg)
             for step in trange(self.num_train_steps):
                 self.step_idx = offset + step
                 images, labels = train_iter.get_next()
                 self.train_step(images, labels)
-                self.constrained_conv_update()
+                # self.constrained_conv_update()
                 self.train_writer.flush()
 
                 with self.train_writer.as_default():
@@ -428,6 +454,7 @@ class BayesianTrainer(BaseTrainer):
             write_log(self.log_file, '\n')
 
             self.ckpt.step.assign_add(1)
+            # if self.eval_acc.result() >= self.best_acc and \
             if self.eval_loss.result() <= self.best_loss:
                 self.best_acc = self.eval_acc.result()
                 self.best_loss = self.eval_loss.result()
@@ -446,7 +473,11 @@ class BayesianTrainer(BaseTrainer):
 
     def evaluate(self, test_iter):
         self.model.build(input_shape=(None, 256, 256, 1))
+        self.plot_weights(self.params.evaluate.initialized_prior,
+                            self.params.evaluate.initialized_posterior)
         self.checkpoint_init()
+        self.plot_weights(self.params.evaluate.trained_prior,
+                    self.params.evaluate.trained_posterior)
         self.eval_acc.reset_states()
         self.eval_loss.reset_states()
 

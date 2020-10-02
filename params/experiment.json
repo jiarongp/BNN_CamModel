@@ -53,8 +53,9 @@
         "degradation_dir": "data/degradation",
         "random_seed": 42,
         "softmax_stats": false,
-        "mc_stats": false,
+        "mc_stats": true,
         "multi_mc_stats": true,
+        "mc_degradation_stats": true,
         "ensemble_stats": false
     },
     "softmax_stats":{
@@ -74,7 +75,7 @@
         "entropy_histogram_path": "results/dresden/experiment/mc_entropy_hist.png",
         "epistemic_histogram_path": "results/dresden/experiment/mc_epistemic_hist.png",
         "roc_path": "results/dresden/experiment/mc_stats_roc.png"
-    },    
+    },
     "multi_mc_stats":{
         "model": "BayesianCNN",
         "num_monte_carlo_ls": [3, 5, 10, 20, 30, 50, 100],
@@ -84,15 +85,27 @@
         "entropy_roc_path": "results/dresden/experiment/multi_mc_entropy_roc.png",
         "epistemic_roc_path": "results/dresden/experiment/multi_mc_epistemic_roc.png"
     },
+    "mc_degradation_stats":{
+        "model": "BayesianCNN",
+        "num_monte_carlo": 10,
+        "ckpt_dir": "ckpts/dresden/bayesian",
+        "degradation_id": [["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"]],
+        "degradation_factor": [[90, 0.1, 0.1], [70, 0.5, 0.5], [50, 1.1, 2.0], [30, 3.0, 3.0]],
+        "entropy_histogram_path": null,
+        "epistemic_histogram_path": null,
+        "roc_path": null,
+        "entropy_roc_path": "results/dresden/experiment/degradation_mc_entropy_roc.png",
+        "epistemic_roc_path": "results/dresden/experiment/degration_mc_epistemic_roc.png"
+    },
     "ensemble_stats":{
         "model": "EnsembleCNN",
-        "num_ensemble": 10,
+        "num_ensemble": 1,
         "ckpt_dir": "ckpts/dresden/ensemble",
         "degradation_id": ["jpeg", "blur", "noise"],
         "degradation_factor": [70, 1.1, 2.0],
-        "entropy_histogram_path": "results/dresden/experiment/ensemble_entropy_hist.png",
-        "epistemic_histogram_path": "results/dresden/experiment/ensemble_epistemic_hist.png",
-        "roc_path": "results/dresden/experiment/ensemble_roc.png"
+        "entropy_histogram_path": "results/dresden/experiment/1_ensemble_entropy_hist.png",
+        "epistemic_histogram_path": "results/dresden/experiment/1_ensemble_epistemic_hist.png",
+        "roc_path": "results/dresden/experiment/1_ensemble_roc.png"
     },
     "log":{
         "log_dir": "results/dresden/experiment/",

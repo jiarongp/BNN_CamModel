@@ -2,10 +2,11 @@ import os
 import numpy as np
 import tensorflow as tf
 import sklearn.metrics as sk
-import pandas as pd
+# import pandas as pd
+from functools import partial
 from tqdm import trange
 from utils.log import write_log
-from utils.data_preparation import build_dataset, degradate
+from utils.data_preparation import build_dataset, degradate, parse_image
 from utils.visualization import histogram, plot_curve
 
 
@@ -25,8 +26,8 @@ class Experiment(object):
                         self.params.dataloader.batch_size,
                         self.in_img_paths)
         self.log_file = self.params.log.log_file
-        in_df = pd.DataFrame(data={"filename": self.in_img_paths})
-        in_df.to_csv("in_img_paths.txt", index=False)
+        # in_df = pd.DataFrame(data={"filename": self.in_img_paths})
+        # in_df.to_csv("in_img_paths.txt", index=False)
 
     def aligned_dataset(self,
             patch_dir, brand_models, batch_size=64,
@@ -108,15 +109,15 @@ class Experiment(object):
                                 self.params.unseen_dataloader.brand_models,
                                 num_batches=self.num_in_batches,
                                 seed=self.random_seed)
-        unseen_df = pd.DataFrame(data={"filename": unseen_img_paths})
-        unseen_df.to_csv("unseen_img_paths.txt", index=False)
+        # unseen_df = pd.DataFrame(data={"filename": unseen_img_paths})
+        # unseen_df.to_csv("unseen_img_paths.txt", index=False)
         kaggle_img_paths, self.num_kaggle_batches = \
             self.aligned_dataset(self.params.kaggle_dataloader.patch_dir,
                                 self.params.kaggle_dataloader.brand_models,
                                 num_batches=self.num_in_batches,
                                 seed=self.random_seed)
-        kaggle_df = pd.DataFrame(data={"filename": kaggle_img_paths})
-        kaggle_df.to_csv("kaggle_img_paths.txt", index=False)
+        # kaggle_df = pd.DataFrame(data={"filename": kaggle_img_paths})
+        # kaggle_df.to_csv("kaggle_img_paths.txt", index=False)
         self.unseen_iter = build_dataset(
                             self.params.unseen_dataloader.patch_dir,
                             self.params.unseen_dataloader.brand_models,
@@ -135,8 +136,8 @@ class Experiment(object):
                                 self.params.experiment.degradation_dir,
                                 self.params.dataloader.database,
                                 name, factor)
-        degradation_df = pd.DataFrame(data={"filename": img_paths})
-        degradation_df.to_csv("degradation_img_paths.txt", index=False)
+        # degradation_df = pd.DataFrame(data={"filename": img_paths})
+        # degradation_df.to_csv("degradation_img_paths.txt", index=False)
         patch_dir = os.path.split(img_paths[0])[0]
         iterator = build_dataset(patch_dir,
                                 self.params.dataloader.brand_models,
@@ -274,6 +275,10 @@ class MCStats(Experiment):
         self.degradation_id = self.params.mc_stats.degradation_id
         self.degradation_factor = self.params.mc_stats.degradation_factor
         self.num_monte_carlo = self.params.mc_stats.num_monte_carlo
+        self.ckpt_dir = self.params.mc_stats.ckpt_dir
+        self.entropy_histogram_path = self.params.mc_stats.entropy_histogram_path
+        self.epistemic_histogram_path = self.params.mc_stats.epistemic_histogram_path
+        self.roc_path =self.params.mc_stats.roc_path
 
     def decompose_uncertainties(self, p_hat):
         """
@@ -323,6 +328,16 @@ class MCStats(Experiment):
         epistemic_all = np.asarray(epistemic_all)
         return entropy_all, epistemic_all
 
+    def full_sized_images_uncertainty(self, image_dir, image_name):
+        dataset = (tf.data.Dataset.list_files(
+                    os.path.join(image_dir, '*', image_name+'*'))
+                    .map(partial(parse_image, brand_models=self.brand_models))
+                    .batch(25))
+        iterator = iter(dataset)
+        mc_softmax_prob, _ = mc_stats(iterator, self.num_monte_carlo, 1)
+        entropy, epistemic = self.image_uncertainty(mc_softmax_prob)
+        return entropy, epistemic
+
     def mc_stats(self, iterator, num_monte_carlo, num_steps):
         mc_softmax_prob = []
         cls_count = [0 for m in self.params.dataloader.brand_models]
@@ -368,8 +383,7 @@ class MCStats(Experiment):
 
 
     def experiment(self):
-        self.load_checkpoint(self.model, 
-            self.params.mc_stats.ckpt_dir)
+        self.load_checkpoint(self.model, self.ckpt_dir)
         self.prepare_unseen_dataset()
         msg = "\n--------------------- Monte Carlo Statistics ---------------------\n\n"
         write_log(self.log_file, msg)
@@ -428,12 +442,12 @@ class MCStats(Experiment):
                     experiment_labels,
                     "Monte Carlo Uncertainty(Entropy) Statistics Histogram",
                     "entropy based uncertainty output from a image",
-                    self.params.mc_stats.entropy_histogram_path)
+                    self.entropy_histogram_path)
         histogram(all_epistemic,
                     experiment_labels,
                     "Monte Carlo Uncertainty(Epistemic Uncertainty) Statistics Histogram",
                     "epistemic uncertainty output from a image",
-                    self.params.mc_stats.epistemic_histogram_path)
+                    self.epistemic_histogram_path)
 
         entropy_fpr, entropy_tpr, entropy_auroc = [], [], []
         for out_entropy, plotname in zip(all_entropy[1:],
@@ -468,17 +482,19 @@ class MCStats(Experiment):
                 xlabel="False Positive Rate",
                 ylabel="True Positive Rate",
                 labels=["entropy", "epistemic"],
-                suptitle="Softmax Statistics",
-                fname=self.params.mc_stats.roc_path)
+                suptitle="Bayesian Statistics",
+                fname=self.roc_path)
 
 class MultiMCStats(MCStats):
     def __init__(self, params, model):
-        super(MultiMCStats, self).__init__(params)
-        self.num_monte_carlo_ls = self.params.mc_stats.num_monte_carlo_ls
+        super(MultiMCStats, self).__init__(params, model)
+        self.num_monte_carlo_ls = self.params.multi_mc_stats.num_monte_carlo_ls 
+        self.degradation_id = self.params.multi_mc_stats.degradation_id
+        self.degradation_factor = self.params.multi_mc_stats.degradation_factor
+        self.ckpt_dir = self.params.multi_mc_stats.ckpt_dir
 
     def experiment(self):
-        self.load_checkpoint(self.model, 
-            self.params.mc_stats.ckpt_dir)
+        self.load_checkpoint(self.model, self.ckpt_dir)
         self.prepare_unseen_dataset()
         msg = "\n--------------------- Multiple Monte Carlo Statistics ---------------------\n\n"
         write_log(self.log_file, msg)
@@ -512,7 +528,7 @@ class MultiMCStats(MCStats):
                                     self.degradation_factor):
                 iterator = self.prepare_degradation_dataset(name, factor)
                 mc_s_prob, cls_count = \
-                    self.mc_stats(iterator, self.num_monte_carlo, self.num_in_batches)
+                    self.mc_stats(iterator, num_monte_carlo, self.num_in_batches)
                 entropy, epistemic = self.image_uncertainty(mc_s_prob)
                 degradation_entropy.append(entropy)
                 degradation_epistemic.append(epistemic)
@@ -575,7 +591,7 @@ class MultiMCStats(MCStats):
                 xlabel="False Positive Rate",
                 ylabel="True Positive Rate",
                 labels=self.num_monte_carlo_ls,
-                suptitle="Softmax Statistics",
+                suptitle="Multiple Monte Carlo Experiment",
                 fname=self.params.multi_mc_stats.entropy_roc_path)
 
         plot_curve(experiment_labels[1:],
@@ -585,7 +601,7 @@ class MultiMCStats(MCStats):
                 xlabel="False Positive Rate",
                 ylabel="True Positive Rate",
                 labels=self.num_monte_carlo_ls,
-                suptitle="Softmax Statistics",
+                suptitle="Multiple Monte Carlo Experiment",
                 fname=self.params.multi_mc_stats.epistemic_roc_path)
 
 class EnsembleStats(MCStats):
@@ -704,7 +720,7 @@ class EnsembleStats(MCStats):
                 xlabel="False Positive Rate",
                 ylabel="True Positive Rate",
                 labels=["entropy", "epistemic"],
-                suptitle="Softmax Statistics",
+                suptitle="Ensemble Experiment",
                 fname=self.params.ensemble_stats.roc_path)
 
 
@@ -741,3 +757,113 @@ class EnsembleStats(MCStats):
         return all_softmax_prob, all_cls_count
 
 
+class MCDegradationStats(MCStats):
+    def __init__(self, params, model):
+        super(MCDegradationStats, self).__init__(params, model)
+        self.degradation_id = self.params.mc_degradation_stats.degradation_id
+        self.degradation_factor = self.params.mc_degradation_stats.degradation_factor
+        self.num_monte_carlo = self.params.mc_degradation_stats.num_monte_carlo
+        self.ckpt_dir = self.params.mc_degradation_stats.ckpt_dir
+        self.entropy_histogram_path = self.params.mc_degradation_stats.entropy_histogram_path
+        self.epistemic_histogram_path = self.params.mc_degradation_stats.epistemic_histogram_path
+        self.roc_path =self.params.mc_degradation_stats.roc_path
+
+    
+    def experiment(self):
+        self.load_checkpoint(self.model, self.ckpt_dir)
+        self.prepare_unseen_dataset()
+        msg = "\n--------------------- Degradation Monte Carlo Statistics ---------------------\n\n"
+        write_log(self.log_file, msg)
+
+        # In distribution  probability
+        in_mc_s_prob, _ = self.mc_stats(self.in_iter,
+                                        self.num_monte_carlo,
+                                        self.num_in_batches)
+        in_entropy, in_epistemic = self.image_uncertainty(in_mc_s_prob)
+
+        entropy_fpr_ls, entropy_tpr_ls, entropy_auroc_ls = [], [], []
+        epistemic_fpr_ls, epistemic_tpr_ls, epistemic_auroc_ls = [], [], []
+        for degradation_id, degradation_factor in \
+            zip(self.degradation_id, self.degradation_factor):
+            # Degradation images softmax probability
+            degradation_entropy = []
+            degradation_epistemic = []
+            degradation_cls_count = []
+            degradation_labels = []
+            for name, factor in zip(degradation_id, degradation_factor):
+                iterator = self.prepare_degradation_dataset(name, factor)
+                mc_s_prob, cls_count = \
+                    self.mc_stats(iterator, self.num_monte_carlo, self.num_in_batches)
+                entropy, epistemic = self.image_uncertainty(mc_s_prob)
+                degradation_entropy.append(entropy)
+                degradation_epistemic.append(epistemic)
+                degradation_cls_count.append(cls_count)
+                degradation_labels.append(' '.join([name, str(factor)]))
+
+            all_entropy = [in_entropy]
+            all_entropy.extend(degradation_entropy)
+            all_epistemic = [in_epistemic]
+            all_epistemic.extend(degradation_epistemic)
+            all_cls_count = degradation_cls_count
+            experiment_labels = ["in distribution"]
+            experiment_labels.extend(degradation_labels)
+            for out_entropy, out_epistemic, cls_count, label in zip(all_entropy[1:], 
+                                                                    all_epistemic[1:], 
+                                                                    all_cls_count, 
+                                                                    experiment_labels[1:]):
+                self.log_in_out(in_entropy, in_epistemic,
+                                out_entropy, out_epistemic,
+                                cls_count, self.num_monte_carlo,
+                                label)
+
+            entropy_fpr, entropy_tpr, entropy_auroc = [], [], []
+            for out_entropy, plotname in zip(all_entropy[1:],
+                                            experiment_labels[1:]):
+                fpr, tpr, opt_thr, auroc = self.roc(in_entropy, out_entropy)
+                msg = (plotname + '\n'
+                    "false positive rate: {:.3%}, "
+                    "true positive rate: {:.3%}, "
+                    "threshold: {:.5}\n".format(opt_thr[0], opt_thr[1], opt_thr[2]))
+                write_log(self.log_file, msg)
+                entropy_fpr.append(fpr)
+                entropy_tpr.append(tpr)
+                entropy_auroc.append(auroc)
+            entropy_fpr_ls.append(entropy_fpr)
+            entropy_tpr_ls.append(entropy_tpr)
+            entropy_auroc_ls.append(entropy_auroc)
+
+            epistemic_fpr, epistemic_tpr, epistemic_auroc = [], [], []
+            for out_epistemic, plotname in zip(all_epistemic[1:],
+                                                experiment_labels[1:]):
+                fpr, tpr, opt_thr, auroc = self.roc(in_epistemic, out_epistemic)
+                msg = (plotname + '\n'
+                    "false positive rate: {:.3%}, "
+                    "true positive rate: {:.3%}, "
+                    "threshold: {:.5}\n".format(opt_thr[0], opt_thr[1], opt_thr[2]))
+                write_log(self.log_file, msg)
+                epistemic_fpr.append(fpr)
+                epistemic_tpr.append(tpr)
+                epistemic_auroc.append(auroc)
+            epistemic_fpr_ls.append(epistemic_fpr)
+            epistemic_tpr_ls.append(epistemic_tpr)
+            epistemic_auroc_ls.append(epistemic_auroc)
+
+        plot_curve(experiment_labels[1:],
+                entropy_fpr_ls, 
+                entropy_tpr_ls, 
+                entropy_auroc_ls, 
+                xlabel="False Positive Rate",
+                ylabel="True Positive Rate",
+                labels=self.params.mc_degradation_stats.degradation_factor,
+                suptitle="Degradation Experiment",
+                fname=self.params.mc_degradation_stats.entropy_roc_path)
+
+        plot_curve(experiment_labels[1:],
+                epistemic_fpr_ls, 
+                epistemic_tpr_ls, 
+                epistemic_auroc_ls, 
+                xlabel="False Positive Rate",
+                ylabel="True Positive Rate",
+                labels=self.params.mc_degradation_stats.degradation_factor,
+                suptitle= "Degradation Experiment",
+                fname=self.params.mc_degradation_stats.epistemic_roc_path)
