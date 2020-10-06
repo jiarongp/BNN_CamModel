@@ -9,7 +9,7 @@ def main():
     debug = True
     try:
         if debug:
-            params = get_params("params/bayesian_cnn.json")
+            params = get_params("params/experiment.json")
         else:
             args = get_args()
             print(args.params)

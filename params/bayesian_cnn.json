@@ -3,7 +3,7 @@
         "name": "BayesianCNN",
         "train": true,
         "evaluate": true,
-        "experiment": true
+        "experiment": false
     },
     "dataloader": {
         "name": "DresdenDataLoader",
@@ -31,7 +31,7 @@
         "decay_rate": 0.98,
         "optimizer": "AdamOptimizer",
         "ckpt_dir": "ckpts/dresden/bayesian/",
-        "patience":2
+        "patience":5
     },
     "log":{
         "log_dir": "results/dresden",

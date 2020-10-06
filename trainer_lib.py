@@ -402,9 +402,7 @@ class BayesianTrainer(BaseTrainer):
             self.train_acc.reset_states()
             self.kl_loss.reset_states()
             self.nll_loss.reset_states()
-            
-            msg = "{}\n".format(self.model.constrained_conv_layer.weights[0])
-            write_log(self.log_file, msg)
+
             for step in trange(self.num_train_steps):
                 self.step_idx = offset + step
                 images, labels = train_iter.get_next()
@@ -454,8 +452,8 @@ class BayesianTrainer(BaseTrainer):
             write_log(self.log_file, '\n')
 
             self.ckpt.step.assign_add(1)
-            # if self.eval_acc.result() >= self.best_acc and \
-            if self.eval_loss.result() <= self.best_loss:
+            if (self.best_acc - self.eval_acc.result()) <= 0.02 and \
+                self.eval_loss.result() <= self.best_loss:
                 self.best_acc = self.eval_acc.result()
                 self.best_loss = self.eval_loss.result()
                 stop_count = 0
@@ -483,7 +481,7 @@ class BayesianTrainer(BaseTrainer):
 
         corr_ls = [0 for x in self.brand_models]
         total_ls = [0 for x in self.brand_models]
-        print(self.model.constrained_conv_layer.weights[0][2, 2, 0, :])
+        print(self.model.constrained_conv_layer.weights[0])
         for step in trange(self.num_test_steps):
             images, labels = test_iter.get_next()
             c, t = self.eval_step(images, labels)

@@ -7,9 +7,10 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 
 def evaluate(params):
-    for b, m in zip(params.dataloader.brands, 
-                        params.dataloader.models):
-        params.dataloader.brand_models.append("_".join([b, m]))
+    if not params.run.train:
+        for b, m in zip(params.dataloader.brands, 
+                            params.dataloader.models):
+            params.dataloader.brand_models.append("_".join([b, m]))
 
     if not os.path.exists(os.path.join(params.dataloader.patch_dir, 'test')):
         msg = "... Preparing dataset for evaluation\n"
