@@ -8,7 +8,7 @@ from tqdm import trange
 from utils.log import write_log
 from utils.data_preparation import build_dataset, degradate, parse_image
 from utils.visualization import histogram, plot_curve
-
+keras = tf.keras
 
 class Experiment(object):
     def __init__(self, params):
@@ -65,7 +65,7 @@ class Experiment(object):
     def load_checkpoint(self, model, ckpt_dir):
         # save model to a checkpoint
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1),
-                        optimizer=tf.keras.optimizers.Adam(),
+                        optimizer=keras.optimizers.Adam(),
                         net=self.model)
         self.manager = tf.train.CheckpointManager(self.ckpt, 
                         ckpt_dir,
@@ -767,8 +767,37 @@ class MCDegradationStats(MCStats):
         self.entropy_histogram_path = self.params.mc_degradation_stats.entropy_histogram_path
         self.epistemic_histogram_path = self.params.mc_degradation_stats.epistemic_histogram_path
         self.roc_path =self.params.mc_degradation_stats.roc_path
+        self.eval_acc = keras.metrics.CategoricalAccuracy(
+                    name='eval_accuracy')
 
-    
+    @tf.function
+    def eval_acc_step(self, images, labels):
+        with tf.GradientTape() as tape:
+            logits = self.model(images)
+        total = tf.math.reduce_sum(labels, axis=0)
+        gt = tf.math.argmax(labels, axis=1)
+        pred = tf.math.argmax(logits, axis=1)
+        corr = labels[pred == gt]
+        corr_count = tf.math.reduce_sum(corr, axis=0)
+        self.eval_acc.update_state(labels, logits)
+        return corr_count, total
+
+    def evaluate(self, test_iter):
+        self.eval_acc.reset_states()
+        corr_ls = [0 for x in self.params.dataloader.brand_models]
+        total_ls = [0 for x in self.params.dataloader.brand_models]
+        for step in trange(self.num_in_batches):
+            images, labels = test_iter.get_next()
+            c, t = self.eval_acc_step(images, labels)
+            corr_ls = [sum(x) for x in zip(corr_ls, c)]
+            total_ls = [sum(x) for x in zip(total_ls, t)]
+        msg ='\n\ntest accuracy: {:.3%}\n'.format(self.eval_acc.result())
+        write_log(self.log_file, msg)
+
+        for m, c, t in zip(self.params.dataloader.brand_models, corr_ls, total_ls):
+            msg = '{} accuracy: {:.3%}\n'.format(m, c / t)
+            write_log(self.log_file, msg)
+
     def experiment(self):
         self.load_checkpoint(self.model, self.ckpt_dir)
         self.prepare_unseen_dataset()
@@ -779,6 +808,7 @@ class MCDegradationStats(MCStats):
         in_mc_s_prob, _ = self.mc_stats(self.in_iter,
                                         self.num_monte_carlo,
                                         self.num_in_batches)
+        self.evaluate(self.in_iter)
         in_entropy, in_epistemic = self.image_uncertainty(in_mc_s_prob)
 
         entropy_fpr_ls, entropy_tpr_ls, entropy_auroc_ls = [], [], []
@@ -794,6 +824,9 @@ class MCDegradationStats(MCStats):
                 iterator = self.prepare_degradation_dataset(name, factor)
                 mc_s_prob, cls_count = \
                     self.mc_stats(iterator, self.num_monte_carlo, self.num_in_batches)
+                self.evaluate(iterator)
+                msg = ' '.join([name, str(factor)]) + '\n'
+                write_log(self.log_file, msg)
                 entropy, epistemic = self.image_uncertainty(mc_s_prob)
                 degradation_entropy.append(entropy)
                 degradation_epistemic.append(epistemic)

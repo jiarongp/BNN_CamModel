@@ -104,24 +104,6 @@ class BaseTrainer(object):
             msg = ("\nInitializing from scratch.\n")
         write_log(self.log_file, msg)
 
-    # def constrained_conv_update(self):
-    #     weights = self.model.constrained_conv_layer.weights[0]
-    #     # check if it is converged
-    #     # if (self.constrained_weights is None) or \
-    #     #     keras.backend.any(self.constrained_weights!=weights):
-    #         # Constrain the first layer
-    #         # Kernel size is 5 x 5 
-    #         # Set central values to zero to exlude them from the normalization step
-    #     center = int(weights.shape[0]/2)
-    #     for i in range(weights.shape[-1]):
-    #         weights[center, center, 0, i].assign(0.)
-    #         weights[:, :, 0, i].assign(tf.math.divide(weights[:, :, 0, i],
-    #                                 tf.math.reduce_sum(weights[:, :, 0, i])))
-    #         weights[center, center, 0, i].assign(-1.)
-    #     self.model.constrained_conv_layer.weights[0].assign(weights)
-    #     self.constrained_weights = weights
-
-
 
 class VanillaTrainer(BaseTrainer):
     def __init__(self, params, model):

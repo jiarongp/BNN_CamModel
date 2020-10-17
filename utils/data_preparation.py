@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 from functools import partial
 from multiprocessing import Pool
-from skimage import io, filters, img_as_ubyte
+from skimage import io, filters, img_as_ubyte, img_as_float64
 from skimage.util import random_noise
 from tqdm import tqdm, trange
 AUTOTUNE = tf.data.experimental.AUTOTUNE
@@ -129,7 +129,12 @@ def post_processing(arg):
         target_path: path of the saved post process images.
     """
     image_name = os.path.split(arg['img_path'])[-1]
-    target_path = os.path.join(arg['target_dir'], image_name)
+    target_path = os.path.join(arg['target_dir'],
+                                os.path.split(os.path.dirname(arg['img_path']))[-1],
+                                image_name)
+    out_fulldir = os.path.split(target_path)[0]
+    if not os.path.exists(out_fulldir):
+        os.makedirs(out_fulldir, exist_ok=True)
 
     if arg['post_processing'] == 'jpeg':
         target_path = os.path.splitext(target_path)[0] + '.jpg'
@@ -151,7 +156,6 @@ def post_processing(arg):
             img = io.imread(arg['img_path'])
             blur = filters.gaussian(img, sigma=arg['factor'], 
                                     truncate=2.0)
-            # print(blur)
             io.imsave(target_path, img_as_ubyte(blur),
                         check_contrast=False)
     elif arg['post_processing'] == 's&p':

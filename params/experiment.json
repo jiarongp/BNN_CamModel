@@ -53,8 +53,8 @@
         "degradation_dir": "data/degradation",
         "random_seed": 42,
         "softmax_stats": false,
-        "mc_stats": true,
-        "multi_mc_stats": true,
+        "mc_stats": false,
+        "multi_mc_stats": false,
         "mc_degradation_stats": true,
         "ensemble_stats": false
     },
@@ -87,10 +87,10 @@
     },
     "mc_degradation_stats":{
         "model": "BayesianCNN",
-        "num_monte_carlo": 10,
+        "num_monte_carlo": 5,
         "ckpt_dir": "ckpts/dresden/bayesian",
         "degradation_id": [["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"]],
-        "degradation_factor": [[90, 0.1, 0.1], [70, 0.5, 0.5], [50, 1.1, 2.0], [30, 3.0, 3.0]],
+        "degradation_factor": [[99, 0.01, 0.01], [90, 0.1, 0.1], [70, 0.5, 0.5], [50, 1.1, 2.0]],
         "entropy_histogram_path": null,
         "epistemic_histogram_path": null,
         "roc_path": null,
