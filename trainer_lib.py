@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tqdm import trange
 from utils.log import write_log
-from utils.visualization import plot_weight_posteriors
+from utils.visualization import plot_weight_posteriors, plot_held_out
 from model_lib import VanillaCNN
 keras = tf.keras
 
@@ -451,6 +451,15 @@ class BayesianTrainer(BaseTrainer):
         msg = '\n... Finished training\n'
         write_log(self.log_file, msg)
 
+    def mc_out_stats(self, images, labels, model, num_monte_carlo, fname):
+        mc_softmax_prob_out = []
+        for i in range(num_monte_carlo):
+            logits_out = model(images)
+            softmax_out = tf.nn.softmax(logits_out)
+            mc_softmax_prob_out.append(softmax_out)
+        mc_softmax_prob_out = np.asarray(mc_softmax_prob_out)
+        plot_held_out(images, labels, self.brand_models, mc_softmax_prob_out, fname)
+
     def evaluate(self, test_iter):
         self.model.build(input_shape=(None, 256, 256, 1))
         self.plot_weights(self.params.evaluate.initialized_prior,
@@ -463,9 +472,12 @@ class BayesianTrainer(BaseTrainer):
 
         corr_ls = [0 for x in self.brand_models]
         total_ls = [0 for x in self.brand_models]
-        print(self.model.constrained_conv_layer.weights[0])
+        # print(self.model.constrained_conv_layer.weights[0])
         for step in trange(self.num_test_steps):
             images, labels = test_iter.get_next()
+            # if step % 30 == 0:
+            #     self.mc_out_stats(images, labels, self.model, num_monte_carlo=50, 
+            #                     fname="results/image_uncertainty_{}.png".format(step))
             c, t = self.eval_step(images, labels)
             corr_ls = [sum(x) for x in zip(corr_ls, c)]
             total_ls = [sum(x) for x in zip(total_ls, t)]

@@ -68,7 +68,7 @@
     },
     "mc_stats":{
         "model": "BayesianCNN",
-        "num_monte_carlo": 10,
+        "num_monte_carlo": 3,
         "ckpt_dir": "ckpts/dresden/bayesian",
         "degradation_id": ["jpeg", "blur", "noise"],
         "degradation_factor": [70, 1.1, 2.0],
@@ -87,10 +87,10 @@
     },
     "mc_degradation_stats":{
         "model": "BayesianCNN",
-        "num_monte_carlo": 5,
+        "num_monte_carlo": 50,
         "ckpt_dir": "ckpts/dresden/bayesian",
-        "degradation_id": [["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"]],
-        "degradation_factor": [[99, 0.01, 0.01], [90, 0.1, 0.1], [70, 0.5, 0.5], [50, 1.1, 2.0]],
+        "degradation_id": [["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"], ["jpeg", "blur", "noise"]],
+        "degradation_factor": [[99, 0.01, 0.01], [90, 0.1, 0.1], [70, 0.5, 0.5], [50, 1.1, 1.0], [30, 2.0, 2.0]],
         "entropy_histogram_path": null,
         "epistemic_histogram_path": null,
         "roc_path": null,
@@ -99,13 +99,13 @@
     },
     "ensemble_stats":{
         "model": "EnsembleCNN",
-        "num_ensemble": 1,
+        "num_ensemble": 10,
         "ckpt_dir": "ckpts/dresden/ensemble",
         "degradation_id": ["jpeg", "blur", "noise"],
         "degradation_factor": [70, 1.1, 2.0],
-        "entropy_histogram_path": "results/dresden/experiment/1_ensemble_entropy_hist.png",
-        "epistemic_histogram_path": "results/dresden/experiment/1_ensemble_epistemic_hist.png",
-        "roc_path": "results/dresden/experiment/1_ensemble_roc.png"
+        "entropy_histogram_path": "results/dresden/experiment/ensemble_entropy_hist.png",
+        "epistemic_histogram_path": "results/dresden/experiment/ensemble_epistemic_hist.png",
+        "roc_path": "results/dresden/experiment/ensemble_roc.png"
     },
     "log":{
         "log_dir": "results/dresden/experiment/",

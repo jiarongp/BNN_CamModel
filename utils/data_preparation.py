@@ -85,7 +85,7 @@ def build_dataset(patch_dir,
                     .prefetch(buffer_size=AUTOTUNE))
         else:
             dataset = (tf.data.Dataset.from_tensor_slices(img_paths)
-                        .repeat()                    
+                        .repeat()
                         .map(partial(parse_image, brand_models=brand_models), 
                                 num_parallel_calls=AUTOTUNE)
                         .batch(batch_size)

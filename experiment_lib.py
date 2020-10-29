@@ -7,7 +7,7 @@ from functools import partial
 from tqdm import trange
 from utils.log import write_log
 from utils.data_preparation import build_dataset, degradate, parse_image
-from utils.visualization import histogram, plot_curve
+from utils.visualization import histogram, plot_curve, plot_held_out
 keras = tf.keras
 
 class Experiment(object):
@@ -338,13 +338,13 @@ class MCStats(Experiment):
         entropy, epistemic = self.image_uncertainty(mc_softmax_prob)
         return entropy, epistemic
 
-    def mc_stats(self, iterator, num_monte_carlo, num_steps):
+    def mc_stats(self, iterator, num_monte_carlo, num_steps, fname=None):
         mc_softmax_prob = []
         cls_count = [0 for m in self.params.dataloader.brand_models]
         for mc_step in trange(num_monte_carlo):
             softmax_prob = []
             for step in range(num_steps):
-                images, _ = iterator.get_next()
+                images, labels = iterator.get_next()
                 softmax, max_softmax_cls = self.eval_step(images)
                 cls_count = [sum(x) for x in zip(tf.math.reduce_sum(
                                                     max_softmax_cls, axis=0),
@@ -352,6 +352,9 @@ class MCStats(Experiment):
                 softmax_prob.extend(softmax)
             mc_softmax_prob.append(softmax_prob)
         mc_softmax_prob = np.asarray(mc_softmax_prob)
+        plot_held_out(images, labels, 
+                        self.params.dataloader.brand_models, 
+                        mc_softmax_prob[:, 0:64, :], fname)
         return mc_softmax_prob, cls_count
 
     def log_in_out(self, in_entropy, in_epistemic, 
@@ -391,19 +394,22 @@ class MCStats(Experiment):
         # In distribution  probability
         in_mc_s_prob, _ = self.mc_stats(self.in_iter,
                                         self.num_monte_carlo, 
-                                        self.num_in_batches)
+                                        self.num_in_batches,
+                                        fname="results/in_distribution.png")
         in_entropy, in_epistemic = self.image_uncertainty(in_mc_s_prob)
 
         # Unseen images softmax probability
         unseen_mc_s_prob, unseen_cls_count = \
             self.mc_stats(self.unseen_iter,
                             self.num_monte_carlo,
-                            self.num_unseen_batches)
+                            self.num_unseen_batches,
+                            fname="results/unseen.png")
         unseen_entropy, unseen_epistemic = self.image_uncertainty(unseen_mc_s_prob)
         kaggle_mc_s_prob, kaggle_cls_count = \
             self.mc_stats(self.kaggle_iter,
                             self.num_monte_carlo,
-                            self.num_kaggle_batches)
+                            self.num_kaggle_batches,
+                            fname="results/kaggle.png")
         kaggle_entropy, kaggle_epistemic = self.image_uncertainty(kaggle_mc_s_prob)
         # Degradation images softmax probability
         degradation_entropy = []
@@ -414,7 +420,8 @@ class MCStats(Experiment):
                                 self.degradation_factor):
             iterator = self.prepare_degradation_dataset(name, factor)
             mc_s_prob, cls_count = \
-                self.mc_stats(iterator, self.num_monte_carlo, self.num_in_batches)
+                self.mc_stats(iterator, self.num_monte_carlo, self.num_in_batches,
+                                fname="results/{}.png".format(name))
             entropy, epistemic = self.image_uncertainty(mc_s_prob)
             degradation_entropy.append(entropy)
             degradation_epistemic.append(epistemic)

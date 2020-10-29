@@ -1,7 +1,7 @@
 {
     "run": {
         "name": "BayesianCNN",
-        "train": true,
+        "train": false,
         "evaluate": true,
         "experiment": false
     },
