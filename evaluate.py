@@ -6,6 +6,7 @@ from utils.misc import instantiate
 gpus = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(gpus[0], True)
 
+
 def evaluate(params):
     if not params.run.train:
         for b, m in zip(params.dataloader.brands, 
@@ -23,6 +24,13 @@ def evaluate(params):
     test_iter = build_dataset(params.dataloader.patch_dir,
                                 params.dataloader.brand_models,
                                 'test', params.evaluate.batch_size)
+
+    # test_iter = build_dataset(params.dataloader.patch_dir,
+    #                             params.dataloader.brand_models,
+    #                             'degradation', params.evaluate.batch_size, 
+    #                             degradation="jpeg",
+    #                             factor="70")
+
     examples_per_epoch = 0
     for m in params.dataloader.brand_models:
         examples_per_epoch += len(os.listdir(os.path.join(

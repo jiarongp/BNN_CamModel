@@ -2,9 +2,10 @@
     "run": {
         "name": "EnsembleCNN",
         "train": false,
-        "evaluate": false
+        "evaluate": true,
+        "experiment": false
     },
-    "data_loader": {
+    "dataloader": {
         "name": "DresdenDataLoader",
         "database": "dresden",
         "database_csv": "data/dresden.csv",
@@ -30,7 +31,7 @@
         "optimizer": "AdamOptimizer",
         "num_ensemble": 10,
         "ckpt_dir": "ckpts/dresden/ensemble",
-        "patience":3
+        "patience":5
     },
     "log":{
         "log_dir": "results/dresden",

@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import tensorflow as tf
+import cv2
 from functools import partial
 from multiprocessing import Pool
 from skimage import io, filters, img_as_ubyte, img_as_float64
@@ -40,7 +41,9 @@ def build_dataset(patch_dir,
                 dataset_id, 
                 batch_size, 
                 img_paths=None, 
-                class_imbalance=False):
+                class_imbalance=False,
+                degradation=None,
+                factor=None):
         if dataset_id == 'train':
             # use oversampling to counteract the class imbalance
             # https://www.tensorflow.org/tutorials/structured_data/imbalanced_data#oversampling
@@ -79,6 +82,15 @@ def build_dataset(patch_dir,
         elif dataset_id == 'test':
             dataset = (tf.data.Dataset.list_files(
                     os.path.join(patch_dir, 'test')+'/*/*')
+                    .repeat()
+                    .map(partial(parse_image, brand_models=brand_models), 
+                            num_parallel_calls=AUTOTUNE)
+                    .batch(batch_size)
+                    .prefetch(buffer_size=AUTOTUNE))
+        elif dataset_id == 'degradation':
+            dataset = (tf.data.Dataset.list_files(
+                    os.path.join("data/degradation", '_'.join('dresden', degradation), factor)+'/*/*')
+                    .repeat()
                     .map(partial(parse_image, brand_models=brand_models), 
                             num_parallel_calls=AUTOTUNE)
                     .batch(batch_size)
@@ -154,8 +166,9 @@ def post_processing(arg):
     elif arg['post_processing'] == 'blur':
         if not os.path.exists(target_path): 
             img = io.imread(arg['img_path'])
-            blur = filters.gaussian(img, sigma=arg['factor'], 
-                                    truncate=2.0)
+            blur = cv2.GaussianBlur(img, (5,5), arg['factor'])
+            # blur = filters.gaussian(img, sigma=arg['factor'], 
+            #                         truncate=2.0)
             io.imsave(target_path, img_as_ubyte(blur),
                         check_contrast=False)
     elif arg['post_processing'] == 's&p':

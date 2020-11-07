@@ -26,8 +26,8 @@ class BaseTrainer(object):
                     name='eval_accuracy')
         self.optimizer = keras.optimizers.Adam(
                             learning_rate=self.params.trainer.lr)
-        # self.loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
-        self.loss_object = self.focal_loss
+        self.loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
+        # self.loss_object = self.focal_loss
 
     # focal loss produce more guaranteed a quicker converge for training
     def focal_loss(self, labels, logits, gamma=2.0, alpha=4.0):
@@ -209,24 +209,23 @@ class VanillaTrainer(BaseTrainer):
             write_log(self.log_file, msg)
 
             for m, c, t in zip(self.brand_models, corr_ls, total_ls):
-                msg = '{} accuracy: {:.3%}\n'.format(m, c / t)
+                acc = c / t
+                msg = '{} accuracy: {:.3%}\n'.format(m, acc)
                 write_log(self.log_file, msg)
             write_log(self.log_file, '\n')
 
-            # self.ckpt.step.assign_add(1)
+            self.ckpt.step.assign_add(1)
             if self.eval_loss.result() < self.best_loss:
                 self.best_acc = self.eval_acc.result()
                 self.best_loss = self.eval_loss.result()
                 stop_count = 0
                 save_path = self.manager.save()
-                # self.model.save(self.params.trainer.ckpt_dir)
                 msg = "Saved checkpoint for epoch {}: {}\n\n".format(epoch, self.params.trainer.ckpt_dir)
                 write_log(self.log_file, msg)
             else:
                 stop_count += 1
                 if stop_count >= self.params.trainer.patience:
                     break
-
         msg = '\n... Finished training\n'
         write_log(self.log_file, msg)
 
@@ -239,7 +238,7 @@ class VanillaTrainer(BaseTrainer):
 
         corr_ls = [0 for x in self.brand_models]
         total_ls = [0 for x in self.brand_models]
-        print(self.model.constrained_conv_layer.get_weights())
+        # print(self.model.constrained_conv_layer.get_weights())
         for step in trange(self.num_test_steps):
             images, labels = test_iter.get_next()
             c, t = self.eval_step(images, labels)
@@ -248,12 +247,13 @@ class VanillaTrainer(BaseTrainer):
 
         msg ='\n\ntest loss: {:.3f}, test accuracy: {:.3%}\n'.format(self.eval_loss.result(),
                                                             self.eval_acc.result())
-        write_log(self.log_file, msg)
+        # write_log(self.log_file, msg)
+        write_log("results/dresden/ensemble_eval.log", msg)
 
         for m, c, t in zip(self.brand_models, corr_ls, total_ls):
             msg = '{} accuracy: {:.3%}\n'.format(m, c / t)
-            write_log(self.log_file, msg)
-
+            # write_log(self.log_file, msg)
+            write_log("results/dresden/ensemble_eval.log", msg)
 
 class EnsembleTrainer(object):
     def __init__(self, params, model):
@@ -293,6 +293,7 @@ class BayesianTrainer(BaseTrainer):
                                 self.params.trainer.batch_size)
         self.num_test_steps = self.compute_steps('test',
                                 self.params.evaluate.batch_size)
+        self.loss_object = self.focal_loss
         lr_schedule = keras.optimizers.schedules.ExponentialDecay(
             self.params.trainer.lr,
             decay_steps=self.num_train_steps,

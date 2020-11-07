@@ -352,9 +352,10 @@ class MCStats(Experiment):
                 softmax_prob.extend(softmax)
             mc_softmax_prob.append(softmax_prob)
         mc_softmax_prob = np.asarray(mc_softmax_prob)
-        plot_held_out(images, labels, 
-                        self.params.dataloader.brand_models, 
-                        mc_softmax_prob[:, 0:64, :], fname)
+        if fname is not None:
+            plot_held_out(images, labels, 
+                            self.params.dataloader.brand_models, 
+                            mc_softmax_prob[:, 0:64, :], fname)
         return mc_softmax_prob, cls_count
 
     def log_in_out(self, in_entropy, in_epistemic, 
@@ -773,7 +774,6 @@ class MCDegradationStats(MCStats):
         self.ckpt_dir = self.params.mc_degradation_stats.ckpt_dir
         self.entropy_histogram_path = self.params.mc_degradation_stats.entropy_histogram_path
         self.epistemic_histogram_path = self.params.mc_degradation_stats.epistemic_histogram_path
-        self.roc_path =self.params.mc_degradation_stats.roc_path
         self.eval_acc = keras.metrics.CategoricalAccuracy(
                     name='eval_accuracy')
 
@@ -855,6 +855,18 @@ class MCDegradationStats(MCStats):
                                 out_entropy, out_epistemic,
                                 cls_count, self.num_monte_carlo,
                                 label)
+
+            histogram(all_entropy,
+                    experiment_labels,
+                    "JPEG Uncertainty(Entropy) Histogram",
+                    "entropy based uncertainty",
+                    self.entropy_histogram_path + '_{}.png'.format(degradation_factor[0]))
+
+            histogram(all_epistemic,
+                    experiment_labels,
+                    "JPEG Uncertainty(Epistemic Uncertainty) Histogram",
+                    "epistemic uncertainty ",
+                    self.epistemic_histogram_path + '_{}.png'.format(degradation_factor[0]))
 
             entropy_fpr, entropy_tpr, entropy_auroc = [], [], []
             for out_entropy, plotname in zip(all_entropy[1:],
