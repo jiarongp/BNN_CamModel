@@ -1,7 +1,9 @@
 # Camera modle identification based on Bayesian Neural Network
 
 ## Environment
+The environment is built successfully with [Anaconda](https://www.anaconda.com), so we recommend to use it.
 
+Alterternatively, you can use virtualenv and pip.
 ```bash
 $ python3 -m venv venv
 $ source ./venv/bin/activate
@@ -114,7 +116,7 @@ Some parameters are worthed to notice:
 
 ## Run
 ```bash
-$ ./run.sh
+$ bash run.sh
 ```
 or you can run single file via
 ```bash

@@ -3,7 +3,7 @@ import os
 import json
 import time
 import importlib
-from types import SimpleNamespac
+from types import SimpleNamespace
 
 def get_args():
     """

@@ -1,12 +1,12 @@
 #!/bin/bash
-VANILLA=~/BNN_CamModel/params/vanilla_cnn.json
+VANILLA=params/vanilla_cnn.json
 python main.py -p $VANILLA
 
-BNN=~/BNN_CamModel/params/bayesian_cnn.json
+BNN=params/bayesian_cnn.json
 python main.py -p $BNN
 
-ENSEMBLE=~/BNN_CamModel/params/ensemble_cnn.json
+ENSEMBLE=params/ensemble_cnn.json
 python main.py -p $ENSEMBLE
 
-EXPERIMENT=~/BNN_CamModel/params/experiment.json
+EXPERIMENT=params/experiment.json
 python main.py -p $EXPERIMENT
