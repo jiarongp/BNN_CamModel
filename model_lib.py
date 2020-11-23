@@ -1,8 +1,8 @@
 import os
+import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow_probability import distributions as tfd
-import numpy as np
 keras = tf.keras
 tfd = tfp.distributions
 
@@ -14,6 +14,9 @@ class BaseModel(tf.keras.Model):
         self.num_cls = len(self.params.dataloader.brand_models)
 
     def constrained_conv_update(self):
+        """
+        weight updates for constrained convolutional layer.
+        """
         weights = self.constrained_conv_layer.weights[0]
         for i in range(weights.shape[-1]):
             weights[2, 2, 0, i].assign(0.)
@@ -25,10 +28,6 @@ class BaseModel(tf.keras.Model):
 class VanillaCNN(BaseModel):
     def __init__(self, params):
         super(VanillaCNN, self).__init__(params)
-        # input_shape = (self.params.model.input_shape.width,
-        #     self.params.model.input_shape.height, 1)
-        
-        # self.input_layer = keras.layers.Input(shape=input_shape, dtype='float32')
         self.constrained_conv_layer = \
             keras.layers.Conv2D(3, (5, 5), 
                 padding='same',

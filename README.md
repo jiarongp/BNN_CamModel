@@ -11,34 +11,40 @@ $ pip install -r requirements.txt
 
 ## File Structure
 
-Directories
+### Directories
 
 ```
+.
 ├── ckpts
 ├── data
-├── examples
 ├── logs
-└── results
+├── params
+├── results
+└── utils
 ```
 - `ckpts` saves the checkpoints for the trained model, you can use it for evaluation or restore your training.
-- `data` stores the data from `dresden` and `RAISE` database and there csv files. 
+- `data` stores the data from `Dresden` and `Kaggle` database and their csv files. 
   - name of database is prefix.
   - `base` suffix contains the patches for `train`, `val` and `test`.
   - If you set the `even_database` to `True`, it will generate files with `even` as suffix.
-- `logs` is the tensorboard directory
-- `results` stores the results from `train.py`, `evaluate.py` and `stats.py`
+- `logs` is the tensorboard directory.
+- `params` store the configuration file for the network training and experiments.
+- `results` stores the results, including log file of training and evaluation, as well as images for visulization.
+- `utils` stores utility functions.
 
-Python files
+### Python files
 ```
-├── data_preparation.py
+├── main.py
 ├── model_lib.py
+├── dataloader_lib.py
 ├── train.py
-├── evaluate.py
-├── params.py
-├── stats.py
-└── utils.py
+├── trainer_lib.py
+├── experiment.py
+└── experiment_lib.py
 ```
-- `data_preparation.py` contains the functions that are used for downloading images from database, splitting images into `train`, `val` and `test` dataset and extract patches from these full-sized images into `data\*_base` directory.
+- `main.py` loads the parameters in configuraion files and runs the program.
+- `model_lib` defines model architectures.
+- `dataloader_lib` defines dataloader to collect and load images from different dataset, it also includes function like split dataset and extract patches from images.
   - after these, the structure of directory `data` looks like the following:
     ```
     ├── data
@@ -57,42 +63,60 @@ Python files
     |   |   │   └── Camera_2
     │   └── database_name.csv
     ```
-- `model_lib.py` defines the model, including a vanilla CNN and a bayesian CNN.
-- `train.py` defines the training loop.
-- `evaluate.py` defines the evaluation.
-- `params.py` stores the paramters like specific directories and training parameters.
-- `stats.py` calculate statics of the model. e.g. ROC curves and [softmax statistics](https://github.com/hendrycks/error-detection)
-- `utils.py` contains useful functions
+- `train.py` builds the model and data iterators, then performs training and evaluation (optional).
+- `trainer_lib` provides different training schemes for different models.
+- `experiment.py` loads data and performs different experiments.
+- `experiment_lib.py` provides different experiment settings.
+
+Utility functions:
+```
+├── data_preparation.py
+├── patch.py
+├── misc.py
+└── visualization.py
+```
+- `data_preparation.py` contains the functions that are used for decoding images building data iterator and adding post-processing effects to the images.
+- `patch.py` provides functions to divide a image into patches.
+- `misc.py` contains functions to parse arguements from command line, instantiate class specified in configuration files and write information to log file.
+- `visualization.py` provides function to plot histograms of predictions, ROC curve and also the histograms of weights in different layes.
+
 
 ## Before Running
+Set the parameters in the json files under the directory `params`.
 
-Set the parameter in the `params.py`
+Some parameters are worthed to notice:
 
-```python
-model_type = 'vanilla' 
-database = 'RAISE'
-even_database = True
-image_root = 'data/'
+```json
+"run": {
+    "name": "VanillaCNN",
+    "train": true,
+    "evaluate": true,
+    "experiment": false
+}
 ```
+- `train` and `evaluate` are boolean values, you can change it to enable/disable. 
+- `experiment` can be only set true when running the `experiment.json`.
 
-- `model_type` has either `'vanilla'` or `'bnn'` as input to set either the running on vanilla CNN or Bayesian CNN.
-- `database` has either `'dresden'` or `'RAISE'` as input to set either running on dresden or RAISE database.
-- `even_database` force the data have the same number of images for each classes.
-- `images_root` set the root directory of the image data.
-
-## Training
-
-```bash
-$ python train.py
+```json
+"dataloader": {
+    "name": "DresdenDataLoader",
+    "database_image_dir": "data/dresden",
+    "patch_dir": "data/dresden_base",
+    "brands": ["Canon", "Canon", "Nikon", "Nikon", "Sony"],
+    "models": ["Ixus70", "Ixus55", "D200", "D70", "DSC-H50"],
+    "even_database": false,
+}
 ```
-## Evaluation
+- `name` specify the class we want to use in `dataloader_lib`.
+- `database_image_dir` define the path to store the downloaded images from dataset.
+- `brands` and `models` are the brand and model information of the camera models, they should be with same size and same order.
+- `even_database` is to specify whether to enforce the dataset to be even for each class or not.
 
+## Run
 ```bash
-$ python evaluate.py
+$ ./run.sh
 ```
-
-## Statistics
-
+or you can run single file via
 ```bash
-$ python stats.py
+$ python main.py -p $PATH_OF_JSON_FILE
 ```

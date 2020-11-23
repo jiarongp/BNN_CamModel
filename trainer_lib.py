@@ -3,7 +3,7 @@ import datetime
 import numpy as np
 import tensorflow as tf
 from tqdm import trange
-from utils.log import write_log
+from utils.misc import write_log
 from utils.visualization import plot_weight_posteriors, plot_held_out
 from model_lib import VanillaCNN
 keras = tf.keras
@@ -27,38 +27,44 @@ class BaseTrainer(object):
         self.optimizer = keras.optimizers.Adam(
                             learning_rate=self.params.trainer.lr)
         self.loss_object = keras.losses.CategoricalCrossentropy(from_logits=True)
-        # self.loss_object = self.focal_loss
 
     # focal loss produce more guaranteed a quicker converge for training
     def focal_loss(self, labels, logits, gamma=2.0, alpha=4.0):
         """
         focal loss for multi-classification
         FL(p_t)=-alpha(1-p_t)^{gamma}ln(p_t)
-        Notice: logits is probability after softmax
         gradient is d(Fl)/d(p_t) not d(Fl)/d(x) as described in paper
         d(Fl)/d(p_t) * [p_t(1-p_t)] = d(Fl)/d(x)
         Lin, T.-Y., Goyal, P., Girshick, R., He, K., & Dollár, P. (2017).
-        Focal Loss for Dense Object Detection, 130(4), 485–491.
         https://doi.org/10.1016/j.ajodo.2005.02.022
-        :param labels: ground truth labels, shape of [batch_size]
-        :param logits: model's output, shape of [batch_size, num_cls]
-        :param gamma:
-        :param alpha:
-        :return: shape of [batch_size]
+        code from:https://github.com/zhezh/focalloss/blob/master/focalloss.py
+        Args:
+            labels: ground truth one-hot labels, shape of [batch_size].
+            logits: model's output, shape of [batch_size, num_cls].
+            gamma: hyper-parameter.
+            alpha: hyper-parameter.
+        Return: 
+            reduced_fl: focal loss, shape of [batch_size]
         """
         epsilon = 1.e-9
         softmax = tf.nn.softmax(logits)
         num_cls = softmax.shape[1]
-
         model_out = tf.math.add(softmax, epsilon)
         ce = tf.math.multiply(labels, -tf.math.log(model_out))
-        weight = tf.math.multiply(labels, tf.math.pow(tf.math.subtract(1., model_out), gamma))
+        weight = tf.math.pow(tf.math.subtract(1., model_out), gamma)
         fl = tf.math.multiply(alpha, tf.math.multiply(weight, ce))
         reduced_fl = tf.math.reduce_sum(fl, axis=1)
-        # reduced_fl = tf.reduce_sum(fl, axis=1)  # same as reduce_max
         return reduced_fl
 
     def compute_steps(self, dataset, batch_size):
+        """
+        compute number of steps for train/val loops.
+        Args:
+            dataset: type of dataset, train/val/test.
+            batch_size: batch size.
+        Return:
+            num_steps: number of step needed to iterate the whole dataset.
+        """
         size = 0
         for m in self.brand_models:
             size += len(os.listdir(os.path.join(
@@ -67,7 +73,10 @@ class BaseTrainer(object):
         num_steps = ((size + batch_size - 1) // batch_size)
         return num_steps
 
-    def tensorboard_init(self):        
+    def tensorboard_init(self):
+        """
+        initilization for tensorboard.
+        """
         # variables for early stopping and saving best models   
         # random guessing
         self.best_acc = 1.0 / self.num_cls
@@ -88,6 +97,9 @@ class BaseTrainer(object):
             self.val_writer.flush()
 
     def checkpoint_init(self):
+        """
+        if checkpoint exists, restore the checkpoint. if not, initialize for saving checkpoints. 
+        """
         # save model to a checkpoint
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1),
                         optimizer=self.optimizer,
@@ -106,6 +118,9 @@ class BaseTrainer(object):
 
 
 class VanillaTrainer(BaseTrainer):
+    """
+    training loop for vanilla (baseline) CNN.
+    """
     def __init__(self, params, model):
         super(VanillaTrainer, self).__init__(params)
         self.model = model
@@ -154,6 +169,9 @@ class VanillaTrainer(BaseTrainer):
         return corr_count, total
 
     def train(self, train_iter, val_iter):
+        """
+        train and validation.
+        """
         self.model.build(input_shape=(None, 256, 256, 1))
         self.model.summary()
         self.tensorboard_init()
@@ -169,10 +187,10 @@ class VanillaTrainer(BaseTrainer):
             self.train_loss.reset_states()
             self.train_acc.reset_states()
 
+            # training loop
             for step in trange(self.num_train_steps):
                 self.step_idx = offset + step
                 images, labels = train_iter.get_next()
-                # tf.config.experimental_run_functions_eagerly(True)
                 self.train_step(images, labels)
                 # self.constrained_conv_update()
                 self.train_writer.flush()
@@ -208,12 +226,14 @@ class VanillaTrainer(BaseTrainer):
                     self.eval_loss.result(), self.eval_acc.result())
             write_log(self.log_file, msg)
 
+            # print validation results
             for m, c, t in zip(self.brand_models, corr_ls, total_ls):
                 acc = c / t
                 msg = '{} accuracy: {:.3%}\n'.format(m, acc)
                 write_log(self.log_file, msg)
             write_log(self.log_file, '\n')
 
+            # save model with early stopping
             self.ckpt.step.assign_add(1)
             if self.eval_loss.result() < self.best_loss:
                 self.best_acc = self.eval_acc.result()
@@ -230,9 +250,11 @@ class VanillaTrainer(BaseTrainer):
         write_log(self.log_file, msg)
 
     def evaluate(self, test_iter):
+        """
+        evalution.
+        """
         self.model.build(input_shape=(None, 256, 256, 1))
         self.checkpoint_init()
-        # self.model.restore(self.params.trainer.ckpt_dir)
         self.eval_acc.reset_states()
         self.eval_loss.reset_states()
 
@@ -244,16 +266,12 @@ class VanillaTrainer(BaseTrainer):
             c, t = self.eval_step(images, labels)
             corr_ls = [sum(x) for x in zip(corr_ls, c)]
             total_ls = [sum(x) for x in zip(total_ls, t)]
-
         msg ='\n\ntest loss: {:.3f}, test accuracy: {:.3%}\n'.format(self.eval_loss.result(),
                                                             self.eval_acc.result())
-        # write_log(self.log_file, msg)
-        write_log("results/dresden/ensemble_eval.log", msg)
-
+        write_log(self.log_file, msg)
         for m, c, t in zip(self.brand_models, corr_ls, total_ls):
             msg = '{} accuracy: {:.3%}\n'.format(m, c / t)
-            # write_log(self.log_file, msg)
-            write_log("results/dresden/ensemble_eval.log", msg)
+            write_log(self.log_file, msg)
 
 class EnsembleTrainer(object):
     def __init__(self, params, model):
@@ -262,6 +280,9 @@ class EnsembleTrainer(object):
         self.ckpt_prefix = self.params.trainer.ckpt_dir
 
     def train(self, train_iter, val_iter):
+        """
+        reuse the VanillaCNN class for training ensemble.
+        """
         for i in range(self.params.trainer.num_ensemble):
             ensemble_idx = i
             self.params.trainer.ckpt_dir = os.path.join(
@@ -293,17 +314,25 @@ class BayesianTrainer(BaseTrainer):
                                 self.params.trainer.batch_size)
         self.num_test_steps = self.compute_steps('test',
                                 self.params.evaluate.batch_size)
+        # use focal loss as loss objective for bnn.
         self.loss_object = self.focal_loss
-        lr_schedule = keras.optimizers.schedules.ExponentialDecay(
-            self.params.trainer.lr,
-            decay_steps=self.num_train_steps,
-            decay_rate=self.params.trainer.decay_rate,
-            staircase=True)
+        # lr_schedule = keras.optimizers.schedules.ExponentialDecay(
+        #     self.params.trainer.lr,
+        #     decay_steps=self.num_train_steps,
+        #     decay_rate=self.params.trainer.decay_rate,
+        #     staircase=True)
         self.optimizer = keras.optimizers.Adam(learning_rate=self.params.trainer.lr)
         self.kl_loss = keras.metrics.Mean(name='kl_loss')
         self.nll_loss = keras.metrics.Mean(name='nll_loss')
     
     def plot_weights(self, prior_fname, posterior_fname):
+        """
+        plot the weights distribution for each layer.
+        Args:
+            prior_fname: file path of the prior distribution plot.
+            posterior_fname: file path of the posterior plot.
+        """
+        # only plot the flipout layers, weights of other layers are deterministic after training.
         names = [layer.name for layer in self.model.layers
                     if 'flipout' in layer.name]
         # prior distribution of kernel
@@ -320,7 +349,6 @@ class BayesianTrainer(BaseTrainer):
         qs_vals = [layer.kernel_posterior.stddev() 
                 for layer in self.model.layers
                 if 'flipout' in layer.name]
-
         plot_weight_posteriors(names, pm_vals, ps_vals, 
                                 fname=prior_fname)
         plot_weight_posteriors(names, qm_vals, qs_vals, 
@@ -340,6 +368,7 @@ class BayesianTrainer(BaseTrainer):
         self.nll_loss.update_state(nll)
         self.train_loss.update_state(loss)
         self.train_acc.update_state(labels, logits)
+        # show histogram of gradients in tensorboard
         # if self.step_idx % 150 == 0:
         #     with self.train_writer.as_default():
         #         tf.summary.histogram(
@@ -386,6 +415,7 @@ class BayesianTrainer(BaseTrainer):
             self.kl_loss.reset_states()
             self.nll_loss.reset_states()
 
+            # train
             for step in trange(self.num_train_steps):
                 self.step_idx = offset + step
                 images, labels = train_iter.get_next()
@@ -429,6 +459,7 @@ class BayesianTrainer(BaseTrainer):
                     self.eval_loss.result(), self.eval_acc.result())
             write_log(self.log_file, msg)
 
+            # print validation results
             for m, c, t in zip(self.brand_models, corr_ls, total_ls):
                 msg = '{} accuracy: {:.3%}\n'.format(m, c / t)
                 write_log(self.log_file, msg)
@@ -448,11 +479,19 @@ class BayesianTrainer(BaseTrainer):
                 stop_count += 1
                 if stop_count >= self.params.trainer.patience:
                     break
-
         msg = '\n... Finished training\n'
         write_log(self.log_file, msg)
 
     def mc_out_stats(self, images, labels, model, num_monte_carlo, fname):
+        """
+        visulize Monte Carlo predictions for images.
+        Args:
+            images: input images.
+            labels: corresponding one-hot labels for images.
+            model: neural network. 
+            num_monte_carlo: times of sampling from the network.
+            fname: output file path.
+        """
         mc_softmax_prob_out = []
         for i in range(num_monte_carlo):
             logits_out = model(images)
@@ -476,17 +515,16 @@ class BayesianTrainer(BaseTrainer):
         # print(self.model.constrained_conv_layer.weights[0])
         for step in trange(self.num_test_steps):
             images, labels = test_iter.get_next()
+            # visualize result examples every x step.
             # if step % 30 == 0:
             #     self.mc_out_stats(images, labels, self.model, num_monte_carlo=50, 
             #                     fname="results/image_uncertainty_{}.png".format(step))
             c, t = self.eval_step(images, labels)
             corr_ls = [sum(x) for x in zip(corr_ls, c)]
             total_ls = [sum(x) for x in zip(total_ls, t)]
-
         msg ='\n\ntest loss: {:.3f}, test accuracy: {:.3%}\n'.format(self.eval_loss.result(),
                                                             self.eval_acc.result())
         write_log(self.log_file, msg)
-
         for m, c, t in zip(self.brand_models, corr_ls, total_ls):
             msg = '{} accuracy: {:.3%}\n'.format(m, c / t)
             write_log(self.log_file, msg)

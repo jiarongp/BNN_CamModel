@@ -1,7 +1,7 @@
 {
     "run": {
         "name": "VanillaCNN",
-        "train": false,
+        "train": true,
         "evaluate": true,
         "experiment": false
     },
@@ -28,7 +28,6 @@
         "epochs": 100,
         "batch_size": 64,
         "lr": 0.0001,
-        "optimizer": "AdamOptimizer",
         "ckpt_dir": "ckpts/dresden/vanilla/",
         "patience":2
     },    
@@ -41,4 +40,4 @@
         "tensorboard_dir": "logs/",
         "log_step": 150
     }
-  }
+}

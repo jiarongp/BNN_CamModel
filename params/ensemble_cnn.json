@@ -1,7 +1,7 @@
 {
     "run": {
         "name": "EnsembleCNN",
-        "train": false,
+        "train": true,
         "evaluate": true,
         "experiment": false
     },
@@ -28,18 +28,17 @@
         "epochs": 100,
         "batch_size": 64,
         "lr": 0.0001,
-        "optimizer": "AdamOptimizer",
         "num_ensemble": 10,
         "ckpt_dir": "ckpts/dresden/ensemble",
         "patience":5
+    },    
+    "evaluate":{
+        "batch_size": 64
     },
     "log":{
         "log_dir": "results/dresden",
         "log_file": "results/dresden/ensemble.log",
         "tensorboard_dir": "logs/",
         "log_step": 150
-    },
-    "evaluate":{
-        "batch_size": 128
     }
-  }
+}

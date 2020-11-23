@@ -8,6 +8,15 @@ color_palette = sns.color_palette()
 fz = 20
 
 def histogram(data, labels, title, xlabel, fname):
+    """
+    plot histograms.
+    Args:
+        data: input data for each label, shape of [# of experiment, # of examples].
+        labels: experiment labels.
+        title: title of histogram.
+        xlabel: x axis's label.
+        fnmae: output file path.
+    """
     plt.figure(figsize=(20, 20))
     sns.set()
     for i, (d, l) in enumerate(zip(data, labels)):
@@ -23,9 +32,22 @@ def histogram(data, labels, title, xlabel, fname):
     print("image is saved to {}".format(fname))
 
 def plot_curve(plotname,
-                x_list, y_list, area_list,
-                xlabel, ylabel, labels,
-                suptitle, fname):
+            x_list, y_list, area_list,
+            xlabel, ylabel, labels,
+            suptitle, fname):
+    """
+    plot ROC curve.
+    Args:
+        plotname: experiment label for each curve.
+        x_list: false positive rate (fpr) for ROC curve.
+        y_list: true positive rate (tpr) for ROC curve.
+        area_list: list of area under ROC curve.
+        xlabel: name for x axis.
+        ylabel: name for y axis.
+        labels: label shown in the legend.
+        suptitle: subtitle for each subplot.
+        fname: output file path.
+    """
     cols = len(plotname)
     rows = 1
     fig = plt.figure(figsize=(5*cols, 5*rows))
@@ -49,16 +71,17 @@ def plot_curve(plotname,
     print("image is saved to {}".format(fname))
 
 def plot_weight_posteriors(names, qm_vals, qs_vals, fname):
-    """Save a PNG plot with histograms of weight means and stddevs.
+    """
+    save a PNG plot with histograms of weight means and stddevs.
     Args:
-    names: A Python `iterable` of `str` variable names.
-    qm_vals: A Python `iterable`, the same length as `names`,
-        whose elements are Numpy `array`s, of any shape, containing
-        posterior means of weight varibles.
-    qs_vals: A Python `iterable`, the same length as `names`,
-        whose elements are Numpy `array`s, of any shape, containing
-        posterior standard deviations of weight varibles.
-    fname: Python `str` filename to save the plot to.
+        names: a Python `iterable` of `str` variable names.
+        qm_vals: a Python `iterable`, the same length as `names`,
+                whose elements are Numpy arrays, of any shape, containing
+                posterior means of weight varibles.
+        qs_vals: a Python `iterable`, the same length as `names`,
+                whose elements are Numpy `array`s, of any shape, containing
+                posterior standard deviations of weight varibles.
+        fname: Python `str` filename to save the plot to.
     """
     fig = plt.figure(figsize=(12, 6))
     sns.set()
@@ -86,6 +109,10 @@ def plot_weight_posteriors(names, qm_vals, qs_vals, fname):
     print("image is saved to {}".format(fname))
 
 def decompose_uncertainties(p_hat):
+    """
+    decompose uncertainty into aleratoric and epistemic uncertainty.
+    same function defined in class MCStats of experiment_lib.py.
+    """
     num_draws = p_hat.shape[0]
     p_mean = np.mean(p_hat, axis=0)
     aleatoric = np.diag(p_mean) - p_hat.T.dot(p_hat) / num_draws
@@ -94,6 +121,9 @@ def decompose_uncertainties(p_hat):
     return aleatoric, epistemic
 
 def image_uncertainty(mc_s_prob):
+    """
+    compute uncertainty for images.
+    """
     # using entropy based method calculate uncertainty for each image
     # mc_s_prob -> (# mc, # batches * batch_size, # classes)
     # mean over the mc samples (# batches * batch_size, # classes)
@@ -110,6 +140,9 @@ def image_uncertainty(mc_s_prob):
     return entropy_all, epistemic_all
 
 def plot_held_out(images, labels, brand_models, mc_softmax_prob, fname):
+    """
+    plot result examples with Monte Carlo samples.
+    """
     entropy, epistemic = image_uncertainty(mc_softmax_prob)
     num_images = len(entropy)
     num_dis_imgs = num_images // 10

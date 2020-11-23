@@ -7,8 +7,9 @@ from skimage import io, filters, img_as_ubyte
 
 
 def extract_patch(img_path_ls, ds_id, patch_dir,
-                    num_patch, extract_span):
-    """call the extract function to extract patches from full-sized image.
+                num_patch, extract_span):
+    """
+    call the extract function to extract patches from full-sized image.
     Args:
         img_path_ls: paths of images needed to be split into patches.
         ds_id: dataset id, one of ['train', 'val', 'test']. 
@@ -16,8 +17,8 @@ def extract_patch(img_path_ls, ds_id, patch_dir,
         patch_dir: parent directory storing the patches.
         num_patch: number of patches being extracted.
         extract_span: size of the region of image to be extracted.
-                        if it's 'adaptive', it means will adaptively extract the
-                        patches.
+                    if it's 'adaptive', it means will adaptively extract 
+                    the patches.
     """
     args_ls = []
     for img_path in img_path_ls:
@@ -31,7 +32,8 @@ def extract_patch(img_path_ls, ds_id, patch_dir,
 
 
 def extract(args):
-    """extract patches from full-sized image.
+    """
+    extract patches from full-sized image.
     Args:
         ds_id: dataset the image belongs to, 'train', 'val' or 'test'.
         img_path: full paths of the source images.
@@ -75,7 +77,8 @@ def extract(args):
 
 
 def patchify(img_path, extract_span): 
-    """Separate the full-sized image into 256 x 256 image patches. By default, the full-sized
+    """
+    separate the full-sized image into 256 x 256 image patches. By default, the full-sized
     images is split into 25 patches.
     Args:
         img_path: the path of the source image.
@@ -91,6 +94,5 @@ def patchify(img_path, extract_span):
     end = np.add(center, extract_span/2).astype(int)
     sub_img = img[start[0]:end[0], start[1]:end[1]]
     sub_img = np.asarray(sub_img)
-    
     patches = view_as_blocks(sub_img[:, :, 1], (256, 256))
     return patches

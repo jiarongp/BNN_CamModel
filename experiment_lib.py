@@ -2,10 +2,9 @@ import os
 import numpy as np
 import tensorflow as tf
 import sklearn.metrics as sk
-# import pandas as pd
 from functools import partial
 from tqdm import trange
-from utils.log import write_log
+from utils.misc import write_log
 from utils.data_preparation import build_dataset, degradate, parse_image
 from utils.visualization import histogram, plot_curve, plot_held_out
 keras = tf.keras
@@ -26,17 +25,25 @@ class Experiment(object):
                         self.params.dataloader.batch_size,
                         self.in_img_paths)
         self.log_file = self.params.log.log_file
-        # in_df = pd.DataFrame(data={"filename": self.in_img_paths})
-        # in_df.to_csv("in_img_paths.txt", index=False)
 
     def aligned_dataset(self,
             patch_dir, brand_models, batch_size=64,
             num_batches=None, seed=42):
         """
         set a fix subset of total test dataset, so that:
-        1. each class has same size of test images
+        1. each class has same size of test images (ROC curve
+           is sensitive to class imbalance)
         2. each monte carlo draw has the same images as input
         3. random seed controls the how to sample this subset
+        Args:
+            patch_dir: directory storing patches.
+            brand_models: name of camera models for testing.
+            batch_size: batch size for testing.
+            num_batches: the number of batches from test dataset,
+                         use this number to determine the number of 
+                         batches of unseen dataset.
+            seed: random seed controls the sampling process 
+                  from the overall test set.
         """
         # default for 'test' data
         np.random.seed(seed)
@@ -46,7 +53,7 @@ class Experiment(object):
             paths = [os.path.join(patch_dir, model, img) for img in images]
             image_paths.append(paths)
             num_images.append(len(images))
-        # # of batches for one class
+        # number of batches for one class
         class_batches = min(num_images) // batch_size
         num_test_batches = len(brand_models) * class_batches
         # sometimes database has more data in 'test', some has more in 'unseen'
@@ -54,7 +61,6 @@ class Experiment(object):
             num_test_batches = min(num_test_batches, num_batches)
             class_batches = round(num_test_batches / len(brand_models))
             num_test_batches = len(brand_models) * class_batches
-
         for images in image_paths:
             np.random.shuffle(images)
             img_paths.extend(images[0:class_batches * batch_size])
@@ -63,7 +69,6 @@ class Experiment(object):
         return img_paths, num_test_batches
 
     def load_checkpoint(self, model, ckpt_dir):
-        # save model to a checkpoint
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1),
                         optimizer=keras.optimizers.Adam(),
                         net=self.model)
@@ -77,7 +82,16 @@ class Experiment(object):
         write_log(self.log_file, msg)
 
     def optimal_threshold(self, fpr, tpr, thresholds):
-        # optimal cutoff is the threshold with (tpr - (1 - fpr)) closest to 0
+        """
+        find out the optimal threshold for the ROC curve, where the optimal 
+        cutoff is the threshold with (tpr - (1 - fpr)) closest to 0.
+        Args:
+            fpr: false positive rate.
+            tpr: true positive rate.
+            thresholds: the corresponding thresholds.
+        Return:
+            optimal: the optimal fpr, tpr and threshold for the ROC curve.
+        """
         distance = np.abs(tpr - (1 - fpr))
         idx = np.argmin(distance)
         optimal_fpr = fpr[idx]
@@ -87,12 +101,25 @@ class Experiment(object):
         return optimal
 
     def roc(self, safe, risky, inverse=False):
+        """
+        generate roc curve.
+        Args:
+            safe: examples that are likely to be in-distribution.
+            risky: examples that are likely to be out-of-distribution.
+            inverse: determine which is case is positive class, by defalut, 
+                     the risky examples (out-of-distribution) are positive.
+        Return:
+            fpr: false positive rates.
+            tpr: true positive rates.
+            optimal: optimal value for threshold and the corresponding fpr 
+                     and tpr.
+            auroc: area under the ROC curve.
+        """
         labels = np.zeros((safe.shape[0] + risky.shape[0]), dtype=np.int32)
         if inverse:
             labels[:safe.shape[0]] += 1
         else:
             labels[safe.shape[0]:] += 1
-        # examples = np.squeeze(np.vstack((safe, risky)))
         examples = np.concatenate((safe, risky))
         auroc = round(100 * sk.roc_auc_score(labels, examples), 2)
         fpr, tpr, thresholds = sk.roc_curve(labels, examples)
@@ -109,15 +136,11 @@ class Experiment(object):
                                 self.params.unseen_dataloader.brand_models,
                                 num_batches=self.num_in_batches,
                                 seed=self.random_seed)
-        # unseen_df = pd.DataFrame(data={"filename": unseen_img_paths})
-        # unseen_df.to_csv("unseen_img_paths.txt", index=False)
         kaggle_img_paths, self.num_kaggle_batches = \
             self.aligned_dataset(self.params.kaggle_dataloader.patch_dir,
                                 self.params.kaggle_dataloader.brand_models,
                                 num_batches=self.num_in_batches,
                                 seed=self.random_seed)
-        # kaggle_df = pd.DataFrame(data={"filename": kaggle_img_paths})
-        # kaggle_df.to_csv("kaggle_img_paths.txt", index=False)
         self.unseen_iter = build_dataset(
                             self.params.unseen_dataloader.patch_dir,
                             self.params.unseen_dataloader.brand_models,
@@ -136,8 +159,6 @@ class Experiment(object):
                                 self.params.experiment.degradation_dir,
                                 self.params.dataloader.database,
                                 name, factor)
-        # degradation_df = pd.DataFrame(data={"filename": img_paths})
-        # degradation_df.to_csv("degradation_img_paths.txt", index=False)
         patch_dir = os.path.split(img_paths[0])[0]
         iterator = build_dataset(patch_dir,
                                 self.params.dataloader.brand_models,
@@ -155,8 +176,10 @@ class Experiment(object):
         return softmax, max_softmax_cls
 
 
-
 class SoftmaxStats(Experiment):
+    """
+    perform softmax statistics.
+    """
     def __init__(self, params, model):
         super(SoftmaxStats, self).__init__(params)
         self.model = model
@@ -165,6 +188,15 @@ class SoftmaxStats(Experiment):
         self.degradation_factor = self.params.softmax_stats.degradation_factor
 
     def softmax_stats(self, iterator, num_steps):
+        """
+        compute the maximum class softmax prediction for each example.
+        Args:
+            iterator: iterator for the target dataset.
+            num_steps: num_steps to iterate through the whole dataset.
+        Return:
+            softmax_prob: maximum class softmax predictions for each example.
+            cls_count: the number of predicted outputs for each class.
+        """
         softmax_prob = []
         cls_count = [0 for m in self.params.dataloader.brand_models]
         for step in trange(num_steps):
@@ -180,6 +212,9 @@ class SoftmaxStats(Experiment):
 
     def log_in_out(self, in_softmax_prob, out_softmax_prob, 
                     cls_count, ood_name):
+        """
+        report the result in log file.
+        """
         msg = "{} In Out Distinction\n".format(ood_name)
         msg += 'In-dist max softmax distribution (mean, std):\n'
         msg += ('{:.4f}, {:.4f}\n'.format(np.mean(in_softmax_prob),
@@ -237,12 +272,12 @@ class SoftmaxStats(Experiment):
         for out_softmax_prob, cls_count, label in zip(all_softmax_prob[1:], 
                                                 all_cls_count, experiment_labels[1:]):
             self.log_in_out(in_softmax_prob, out_softmax_prob, cls_count, label)
-
+        # plot softmax histograms for each type of data
         histogram(all_softmax_prob,
-                    experiment_labels,
-                    "Softmax Statistics Histogram",
-                    "maximum softmax output from a image",
-                    self.params.softmax_stats.histogram_path)
+                experiment_labels,
+                "Softmax Statistics Histogram",
+                "maximum softmax output from a image",
+                self.params.softmax_stats.histogram_path)
 
         fpr_ls, tpr_ls, auroc_ls = [], [], []
         for out_softmax_prob, plotname in zip(all_softmax_prob[1:], experiment_labels[1:]):
@@ -257,7 +292,7 @@ class SoftmaxStats(Experiment):
             fpr_ls.append(fpr)
             tpr_ls.append(tpr)
             auroc_ls.append(auroc)
-
+        # plot ROC curve
         plot_curve(experiment_labels[1:],
                 [fpr_ls], [tpr_ls], [auroc_ls], 
                 xlabel="False Positive Rate",
@@ -286,12 +321,13 @@ class MCStats(Experiment):
         Explanation: https://github.com/ykwon0407/UQ_BNN/issues/3
         T: number of draws from the model
         K: number of classes
-
         For squashing the resulting matrices into a single scalar, there are multiple options:
         * Sum/Average over all elements can result in negative outcomes.
         * Sum/Average over diagonal elements only.
-        :param p_hat: ndarray of shape [num_draws, num_classes]
-        :return: aleatoric and epistemic uncertainties, each is an ndarray of shape [num_classes, num_classes]
+        Args:
+            p_hat: ndarray of shape [num_draws, num_classes]
+        Return: 
+            aleatoric and epistemic uncertainties, each is an ndarray of shape [num_classes, num_classes]
             The diagonal entries of the epistemic uncertainties matrix represents the variances, i.e., np.var(p_hat, axis=0)).
         """
         num_draws = p_hat.shape[0]
@@ -312,13 +348,16 @@ class MCStats(Experiment):
         return aleatoric, epistemic
 
     def image_uncertainty(self, mc_s_prob):
+        """
+        calculate uncertainty for images.
+        """
         # using entropy based method calculate uncertainty for each image
         # mc_s_prob -> (# mc, # batches * batch_size, # classes)
         # mean over the mc samples (# batches * batch_size, # classes)
         mean_probs = np.mean(mc_s_prob, axis=0)
         # log_prob over classes (# batches * batch_size)
         entropy_all = -np.sum((mean_probs * np.log(mean_probs + np.finfo(float).eps)), axis=1)
-
+        # decompose uncertainty
         epistemic_all = []
         for i in range(mc_s_prob.shape[1]): # for each image
             # output epistemic uncertainty for each image -> [# classes, # classes] matrix
@@ -328,17 +367,11 @@ class MCStats(Experiment):
         epistemic_all = np.asarray(epistemic_all)
         return entropy_all, epistemic_all
 
-    def full_sized_images_uncertainty(self, image_dir, image_name):
-        dataset = (tf.data.Dataset.list_files(
-                    os.path.join(image_dir, '*', image_name+'*'))
-                    .map(partial(parse_image, brand_models=self.brand_models))
-                    .batch(25))
-        iterator = iter(dataset)
-        mc_softmax_prob, _ = mc_stats(iterator, self.num_monte_carlo, 1)
-        entropy, epistemic = self.image_uncertainty(mc_softmax_prob)
-        return entropy, epistemic
-
     def mc_stats(self, iterator, num_monte_carlo, num_steps, fname=None):
+        """
+        compute softmax predictions for each image throughout multiple Monte Carlo samples, 
+        and plot the results (optional).
+        """
         mc_softmax_prob = []
         cls_count = [0 for m in self.params.dataloader.brand_models]
         for mc_step in trange(num_monte_carlo):
@@ -392,14 +425,14 @@ class MCStats(Experiment):
         msg = "\n--------------------- Monte Carlo Statistics ---------------------\n\n"
         write_log(self.log_file, msg)
 
-        # In distribution  probability
+        # In distribution probability and uncertainty
         in_mc_s_prob, _ = self.mc_stats(self.in_iter,
                                         self.num_monte_carlo, 
                                         self.num_in_batches,
                                         fname="results/in_distribution.png")
         in_entropy, in_epistemic = self.image_uncertainty(in_mc_s_prob)
 
-        # Unseen images softmax probability
+        # Unseen images softmax probability and uncertainty
         unseen_mc_s_prob, unseen_cls_count = \
             self.mc_stats(self.unseen_iter,
                             self.num_monte_carlo,
@@ -412,7 +445,7 @@ class MCStats(Experiment):
                             self.num_kaggle_batches,
                             fname="results/kaggle.png")
         kaggle_entropy, kaggle_epistemic = self.image_uncertainty(kaggle_mc_s_prob)
-        # Degradation images softmax probability
+        # Degradation images softmax probability and uncertainty
         degradation_entropy = []
         degradation_epistemic = []
         degradation_cls_count = []
@@ -445,18 +478,19 @@ class MCStats(Experiment):
                             out_entropy, out_epistemic,
                             cls_count, self.num_monte_carlo,
                             label)
-
+        # plot histograms for both entropy-based and epistemic uncertainty
         histogram(all_entropy,
                     experiment_labels,
                     "Monte Carlo Uncertainty(Entropy) Statistics Histogram",
-                    "entropy based uncertainty output from a image",
+                    "entropy based uncertainty output from an image",
                     self.entropy_histogram_path)
         histogram(all_epistemic,
                     experiment_labels,
                     "Monte Carlo Uncertainty(Epistemic Uncertainty) Statistics Histogram",
-                    "epistemic uncertainty output from a image",
+                    "epistemic uncertainty output from an image",
                     self.epistemic_histogram_path)
 
+        # generate ROC curves for entropy-based uncertainty
         entropy_fpr, entropy_tpr, entropy_auroc = [], [], []
         for out_entropy, plotname in zip(all_entropy[1:],
                                         experiment_labels[1:]):
@@ -469,7 +503,7 @@ class MCStats(Experiment):
             entropy_fpr.append(fpr)
             entropy_tpr.append(tpr)
             entropy_auroc.append(auroc)
-
+        # generate ROC curves for epistemic uncertainty
         epistemic_fpr, epistemic_tpr, epistemic_auroc = [], [], []
         for out_epistemic, plotname in zip(all_epistemic[1:],
                                             experiment_labels[1:]):
@@ -482,7 +516,7 @@ class MCStats(Experiment):
             epistemic_fpr.append(fpr)
             epistemic_tpr.append(tpr)
             epistemic_auroc.append(auroc)
-
+        # plot ROC curves
         plot_curve(experiment_labels[1:],
                 [entropy_fpr, epistemic_fpr], 
                 [entropy_tpr, epistemic_tpr], 
@@ -490,7 +524,7 @@ class MCStats(Experiment):
                 xlabel="False Positive Rate",
                 ylabel="True Positive Rate",
                 labels=["entropy", "epistemic"],
-                suptitle="Bayesian Statistics",
+                suptitle="Bayesian Statistics of Uncertainty",
                 fname=self.roc_path)
 
 class MultiMCStats(MCStats):
@@ -509,8 +543,9 @@ class MultiMCStats(MCStats):
 
         entropy_fpr_ls, entropy_tpr_ls, entropy_auroc_ls = [], [], []
         epistemic_fpr_ls, epistemic_tpr_ls, epistemic_auroc_ls = [], [], []
+        # perform Monte Carlo samples according to the number in the list
         for num_monte_carlo in self.num_monte_carlo_ls:
-            # In distribution  probability
+            # In distribution probability
             in_mc_s_prob, _ = self.mc_stats(self.in_iter,
                                             num_monte_carlo,
                                             self.num_in_batches)
@@ -639,7 +674,9 @@ class EnsembleStats(MCStats):
 
         all_ensemble_s_prob = []
         ensemble_cls_count = []
+        # run the ensemble of CNNs
         for i in range(self.num_ensemble):
+            # run one CNN each time
             single_softmax_prob, single_cls_count = self.single_run(i)
             all_ensemble_s_prob.append(single_softmax_prob)
             ensemble_cls_count.append(single_cls_count)
@@ -649,7 +686,7 @@ class EnsembleStats(MCStats):
             cls_count = [0 for m in self.params.dataloader.brand_models]
             for c in ensemble_cls_count:
                 cls_count = [sum(x) for x in zip(cls_count, c[i])]
-            all_cls_count.append(cls_count)
+            all_cls_count.append(cls_count/self.num_ensemble)
 
         in_entropy, in_epistemic = self.image_uncertainty(
             np.asarray([prob[0] for prob in all_ensemble_s_prob]))
@@ -685,15 +722,15 @@ class EnsembleStats(MCStats):
                             label)
 
         histogram(all_entropy,
-                    experiment_labels,
-                    "Monte Carlo Uncertainty(Entropy) Statistics Histogram",
-                    "entropy based uncertainty output from a image",
-                    self.params.ensemble_stats.entropy_histogram_path)
+                experiment_labels,
+                "Monte Carlo Uncertainty(Entropy) Statistics Histogram",
+                "entropy based uncertainty output from an image",
+                self.params.ensemble_stats.entropy_histogram_path)
         histogram(all_epistemic,
-                    experiment_labels,
-                    "Monte Carlo Uncertainty(Epistemic Uncertainty) Statistics Histogram",
-                    "epistemic uncertainty output from a image",
-                    self.params.ensemble_stats.epistemic_histogram_path)
+                experiment_labels,
+                "Monte Carlo Uncertainty(Epistemic Uncertainty) Statistics Histogram",
+                "epistemic uncertainty output from an image",
+                self.params.ensemble_stats.epistemic_histogram_path)
 
         entropy_fpr, entropy_tpr, entropy_auroc = [], [], []
         for out_entropy, plotname in zip(all_entropy[1:],
@@ -731,12 +768,14 @@ class EnsembleStats(MCStats):
                 suptitle="Ensemble Experiment",
                 fname=self.params.ensemble_stats.roc_path)
 
-
     def single_run(self, ensemble_idx):
+        """
+        run one Vanilla CNN of the ensemble.
+        """
         ckpt_dir = os.path.join(self.params.ensemble_stats.ckpt_dir,
                                 str(ensemble_idx))
         self.load_checkpoint(self.model, ckpt_dir)
-        # In distribution  probability
+        # In distribution probability
         in_softmax_prob, _ = self.ensemble_stats(self.in_iter,
                                         self.num_in_batches)
         # Unseen images softmax probability
@@ -779,6 +818,9 @@ class MCDegradationStats(MCStats):
 
     @tf.function
     def eval_acc_step(self, images, labels):
+        """
+        evaluate the predictions with accuracy.
+        """
         with tf.GradientTape() as tape:
             logits = self.model(images)
         total = tf.math.reduce_sum(labels, axis=0)

@@ -1,7 +1,7 @@
 {
     "run": {
         "name": "BayesianCNN",
-        "train": false,
+        "train": true,
         "evaluate": true,
         "experiment": false
     },
@@ -29,15 +29,8 @@
         "batch_size": 64,
         "lr": 0.0001,
         "decay_rate": 0.98,
-        "optimizer": "AdamOptimizer",
         "ckpt_dir": "ckpts/dresden/bayesian/",
         "patience":5
-    },
-    "log":{
-        "log_dir": "results/dresden",
-        "log_file": "results/dresden/bayesian.log",
-        "tensorboard_dir": "logs/",
-        "log_step": 150
     },
     "evaluate":{
         "batch_size": 64,
@@ -46,5 +39,11 @@
         "initialized_posterior": "results/dresden/initialized_posterior",
         "trained_prior": "results/dresden/trained_prior",
         "trained_posterior": "results/dresden/trained_posterior"
+    },
+    "log":{
+        "log_dir": "results/dresden",
+        "log_file": "results/dresden/bayesian.log",
+        "tensorboard_dir": "logs/",
+        "log_step": 150
     }
-  }
+}

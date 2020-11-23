@@ -6,7 +6,7 @@ import urllib
 import tensorflow as tf
 from skimage import io
 from tqdm import tqdm, trange
-from utils.log import write_log
+from utils.misc import write_log
 from utils.patch import extract_patch
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -31,10 +31,8 @@ class BaseDataLoader(object):
         # num_test equals to num_val
         num_test = num_val = int(len(self.img_path_ls) * 0.1)
         num_train = len(self.img_path_ls) - num_test - num_val
-
         np.random.seed(seed)
         np.random.shuffle(self.img_path_ls)
-
         train_list = self.img_path_ls[0:num_train]
         val_list = self.img_path_ls[num_train:(num_train + num_val)]
         test_list = self.img_path_ls[(num_train + num_val):]
@@ -53,6 +51,9 @@ class BaseDataLoader(object):
 
 
 class DresdenDataLoader(BaseDataLoader):
+    """
+    load dresden dataset
+    """
     def __init__(self, params):
         super(DresdenDataLoader, self).__init__(params)
         self.split_ds = []
@@ -68,7 +69,7 @@ class DresdenDataLoader(BaseDataLoader):
             images_dir: target root directory for the downloaded images.
             brand_models: the brand_model name of the target images.
         Return:
-            path_list: a list of paths of images. 
+            saved files in the directory images_dir.
             For example: 'image_dir/brand_model/filname.jpg'.
         """
         csv_rows = []
@@ -126,8 +127,11 @@ class DresdenDataLoader(BaseDataLoader):
         msg = 'Number of images: {:}\n'.format(len(self.img_path_ls))
         write_log(self.log_file, msg)
 
-
     def load_data(self):
+        """
+        load data, split data into train, validation and test set, and then extract the 256*256 patches
+        from images' green channel.
+        """
         # download images
         self.collect_dataset()
         # split into train, val and test 
@@ -157,6 +161,9 @@ class DresdenDataLoader(BaseDataLoader):
 
 
 class UnseenDresdenDataLoader(DresdenDataLoader):
+    """
+    load unseen data from dresden dataset for testing.
+    """
     def __init__(self, params):
         super(UnseenDresdenDataLoader, self).__init__(params)
         self.brand_models = self.params.unseen_dataloader.brand_models
@@ -185,6 +192,9 @@ class UnseenDresdenDataLoader(DresdenDataLoader):
             print("... Done\n")
 
 class KaggleDataLoader(UnseenDresdenDataLoader):
+    """
+    load unseen data from Kaggle dataset.
+    """
     def __init__(self, params):
         super(KaggleDataLoader, self).__init__(params)
         self.brand_models = self.params.kaggle_dataloader.brand_models
