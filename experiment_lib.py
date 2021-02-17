@@ -686,7 +686,7 @@ class EnsembleStats(MCStats):
             cls_count = [0 for m in self.params.dataloader.brand_models]
             for c in ensemble_cls_count:
                 cls_count = [sum(x) for x in zip(cls_count, c[i])]
-            all_cls_count.append(cls_count/self.num_ensemble)
+            all_cls_count.append(np.array(cls_count)/self.num_ensemble)
 
         in_entropy, in_epistemic = self.image_uncertainty(
             np.asarray([prob[0] for prob in all_ensemble_s_prob]))
