@@ -36,6 +36,7 @@ def experiment(params):
         if params.experiment.ensemble_stats:
             ensemble_stats = EnsembleStats(params, model)
             ensemble_stats.experiment()
+
     # other experiments use the BNN.
     if params.experiment.mc_stats or params.experiment.multi_mc_stats or params.experiment.mc_degradation_stats:
         examples_per_epoch = 0

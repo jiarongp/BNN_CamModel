@@ -652,7 +652,11 @@ class EnsembleStats(MCStats):
         super(EnsembleStats, self).__init__(params, model)
         self.degradation_id = self.params.ensemble_stats.degradation_id
         self.degradation_factor = self.params.ensemble_stats.degradation_factor
+
+        # number of ensembles for experiment
         self.num_ensemble = self.params.ensemble_stats.num_ensemble
+        # total number of available models
+        self.total_num_ensemble = len(os.listdir(self.params.ensemble_stats.ckpt_dir))
 
     def ensemble_stats(self, iterator, num_steps):
         softmax_prob = []
@@ -674,10 +678,12 @@ class EnsembleStats(MCStats):
 
         all_ensemble_s_prob = []
         ensemble_cls_count = []
+
+        permuted_idx = np.random.permutation(self.total_num_ensemble)
         # run the ensemble of CNNs
         for i in range(self.num_ensemble):
             # run one CNN each time
-            single_softmax_prob, single_cls_count = self.single_run(i)
+            single_softmax_prob, single_cls_count = self.single_run(permuted_idx[i])
             all_ensemble_s_prob.append(single_softmax_prob)
             ensemble_cls_count.append(single_cls_count)
 
